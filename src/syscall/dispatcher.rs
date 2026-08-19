@@ -5,6 +5,7 @@
 //! and handles direct `svc #0` fallback.
 
 use crate::arch::context::Arm64CpuContext;
+use crate::memory::mmap::{MemoryRegion, ProtFlags};
 use crate::memory::page::{align_down_16k, align_up_16k};
 use crate::syscall::procfs::VirtualProcFs;
 use crate::syscall::table::*;
@@ -189,8 +190,22 @@ impl SyscallDispatcher {
                 let fd = a4 as i32;
                 let offset = a5 as libc::off_t;
 
-                // 16KB Page Masking & Alignment
                 let aligned_len = align_up_16k(len);
+
+                // If addr == 0 and anonymous mapping, guarantee 16KB alignment
+                if addr == 0 && (flags & libc::MAP_ANONYMOUS) != 0 {
+                    match MemoryRegion::allocate_16k(aligned_len, ProtFlags(prot)) {
+                        Ok(region) => {
+                            let ptr = region.as_ptr() as usize;
+                            std::mem::forget(region); // Leave mapped in process
+                            return ptr as i64;
+                        }
+                        Err(_) => {
+                            return -unsafe { *libc::__errno_location() as i64 };
+                        }
+                    }
+                }
+
                 let aligned_addr = if addr != 0 {
                     align_down_16k(addr)
                 } else {

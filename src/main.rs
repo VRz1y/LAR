@@ -22,7 +22,7 @@ fn main() {
     print_banner(&runtime);
 
     let args: Vec<String> = env::args().collect();
-    if args.len() < 2 {
+    if args.len() < 2 || args[1] == "--help" || args[1] == "-h" {
         println!("Usage: lar <path-to-arm64-library.so> [options]");
         println!("Options:");
         println!("  --info       Inspect ELF headers and segment mappings without executing");
