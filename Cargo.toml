@@ -1,5 +1,5 @@
 [package]
-name = "LAR"
+name = "lar"
 version = "0.1.0"
 edition = "2024"
 
@@ -13,3 +13,9 @@ path = "src/main.rs"
 
 [dependencies]
 libc = "0.2"
+
+[workspace]
+members = [
+    ".",
+    "crates/lar-tester",
+]

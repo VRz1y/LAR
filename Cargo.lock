@@ -3,10 +3,17 @@
 version = 4
 
 [[package]]
-name = "LAR"
+name = "lar"
 version = "0.1.0"
 dependencies = [
  "libc",
+]
+
+[[package]]
+name = "lar-tester"
+version = "0.1.0"
+dependencies = [
+ "lar",
 ]
 
 [[package]]
