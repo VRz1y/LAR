@@ -3,4 +3,13 @@ name = "LAR"
 version = "0.1.0"
 edition = "2024"
 
+[lib]
+name = "lar"
+path = "src/lib.rs"
+
+[[bin]]
+name = "lar"
+path = "src/main.rs"
+
 [dependencies]
+libc = "0.2"
