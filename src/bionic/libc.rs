@@ -25,7 +25,11 @@ pub unsafe extern "C" fn bionic_realloc(ptr: *mut c_void, size: usize) -> *mut c
     unsafe { libc::realloc(ptr, size) }
 }
 
-pub unsafe extern "C" fn bionic_memcpy(dst: *mut c_void, src: *const c_void, n: usize) -> *mut c_void {
+pub unsafe extern "C" fn bionic_memcpy(
+    dst: *mut c_void,
+    src: *const c_void,
+    n: usize,
+) -> *mut c_void {
     unsafe { libc::memcpy(dst, src, n) }
 }
 
@@ -33,7 +37,11 @@ pub unsafe extern "C" fn bionic_memset(s: *mut c_void, c: c_int, n: usize) -> *m
     unsafe { libc::memset(s, c, n) }
 }
 
-pub unsafe extern "C" fn bionic_memmove(dst: *mut c_void, src: *const c_void, n: usize) -> *mut c_void {
+pub unsafe extern "C" fn bionic_memmove(
+    dst: *mut c_void,
+    src: *const c_void,
+    n: usize,
+) -> *mut c_void {
     unsafe { libc::memmove(dst, src, n) }
 }
 
@@ -57,7 +65,11 @@ pub unsafe extern "C" fn bionic_strcpy(dst: *mut c_char, src: *const c_char) -> 
     unsafe { libc::strcpy(dst, src) }
 }
 
-pub unsafe extern "C" fn bionic_strncpy(dst: *mut c_char, src: *const c_char, n: usize) -> *mut c_char {
+pub unsafe extern "C" fn bionic_strncpy(
+    dst: *mut c_char,
+    src: *const c_char,
+    n: usize,
+) -> *mut c_char {
     unsafe { libc::strncpy(dst, src, n) }
 }
 

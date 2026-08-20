@@ -1,7 +1,7 @@
 //! LAR - Linux Android Runtime CLI Entry Point.
 
-use lar::memory::page::host_page_size;
 use lar::LarRuntime;
+use lar::memory::page::host_page_size;
 use std::env;
 use std::process;
 
@@ -11,9 +11,16 @@ fn print_banner(runtime: &LarRuntime) {
     println!("========================================================");
     println!("Host Architecture   : {}", runtime.host_arch);
     println!("Execution Mode      : {:?}", runtime.execution_mode);
-    println!("Host Page Size      : {} KB ({} bytes)", host_page_size() / 1024, host_page_size());
+    println!(
+        "Host Page Size      : {} KB ({} bytes)",
+        host_page_size() / 1024,
+        host_page_size()
+    );
     println!("Guest Page Target   : 16 KB (16384 bytes)");
-    println!("Bionic Shims Loaded : {} symbols", runtime.symbol_registry.count());
+    println!(
+        "Bionic Shims Loaded : {} symbols",
+        runtime.symbol_registry.count()
+    );
     println!("========================================================\n");
 }
 
@@ -39,7 +46,10 @@ fn main() {
             println!("      Load Base Address : 0x{:x}", lib.load_base);
             println!("      Mapped Size       : {} bytes", lib.mem_region.len());
             println!("      Init Routines     : {} found", lib.init_array.len());
-            println!("      Entry Point       : {:?}", lib.entry_point.map(|e| format!("0x{:x}", e)));
+            println!(
+                "      Entry Point       : {:?}",
+                lib.entry_point.map(|e| format!("0x{:x}", e))
+            );
 
             if args.iter().any(|arg| arg == "--symbols") {
                 println!("\n[LAR] Exported Symbols:");

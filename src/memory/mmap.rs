@@ -3,7 +3,7 @@
 //! Provides RAII memory mapping, protection flag management, and 16KB-aligned
 //! address range reservations for ELF loaders.
 
-use crate::memory::page::{align_up_16k, is_16k_aligned, PAGE_SIZE_16K};
+use crate::memory::page::{PAGE_SIZE_16K, align_up_16k, is_16k_aligned};
 use std::fmt;
 use std::ptr::NonNull;
 
@@ -57,30 +57,71 @@ impl std::ops::BitOr for ProtFlags {
 /// Errors related to virtual memory operations.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum MemoryError {
-    AllocationFailed { size: usize, errno: i32 },
-    ProtectionFailed { addr: usize, size: usize, errno: i32 },
-    OutOfBounds { offset: usize, len: usize, total: usize },
-    InvalidAlignment { addr: usize, expected_align: usize },
-    DeallocationFailed { addr: usize, size: usize, errno: i32 },
+    AllocationFailed {
+        size: usize,
+        errno: i32,
+    },
+    ProtectionFailed {
+        addr: usize,
+        size: usize,
+        errno: i32,
+    },
+    OutOfBounds {
+        offset: usize,
+        len: usize,
+        total: usize,
+    },
+    InvalidAlignment {
+        addr: usize,
+        expected_align: usize,
+    },
+    DeallocationFailed {
+        addr: usize,
+        size: usize,
+        errno: i32,
+    },
 }
 
 impl fmt::Display for MemoryError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Self::AllocationFailed { size, errno } => {
-                write!(f, "Failed to allocate {} bytes via mmap (errno {})", size, errno)
+                write!(
+                    f,
+                    "Failed to allocate {} bytes via mmap (errno {})",
+                    size, errno
+                )
             }
             Self::ProtectionFailed { addr, size, errno } => {
-                write!(f, "Failed to mprotect 0x{:x} ({} bytes) (errno {})", addr, size, errno)
+                write!(
+                    f,
+                    "Failed to mprotect 0x{:x} ({} bytes) (errno {})",
+                    addr, size, errno
+                )
             }
             Self::OutOfBounds { offset, len, total } => {
-                write!(f, "Out of bounds access: offset {} + len {} exceeds total {}", offset, len, total)
+                write!(
+                    f,
+                    "Out of bounds access: offset {} + len {} exceeds total {}",
+                    offset, len, total
+                )
             }
-            Self::InvalidAlignment { addr, expected_align } => {
-                write!(f, "Address 0x{:x} is not aligned to {} bytes", addr, expected_align)
+            Self::InvalidAlignment {
+                addr,
+                expected_align,
+            } => {
+                write!(
+                    f,
+                    "Address 0x{:x} is not aligned to {} bytes",
+                    addr, expected_align
+                )
             }
             Self::DeallocationFailed { addr, size, errno } => {
-                write!(f, "Failed to munmap 0x{:x} ({} bytes) (errno {})", addr, size, errno)
+                write!(
+                    f,
+                    "Failed to munmap 0x{:x} ({} bytes) (errno {})",
+                    addr, size, errno
+                )
             }
         }
     }
@@ -104,11 +145,14 @@ impl MemoryRegion {
     /// Allocates an anonymous virtual memory region of `size` bytes, aligned to at least 16KB.
     pub fn allocate_16k(size: usize, prot: ProtFlags) -> Result<Self, MemoryError> {
         if size == 0 {
-            return Err(MemoryError::AllocationFailed { size: 0, errno: libc::EINVAL });
+            return Err(MemoryError::AllocationFailed {
+                size: 0,
+                errno: libc::EINVAL,
+            });
         }
 
         let aligned_size = align_up_16k(size);
-        
+
         // We allocate with extra padding if necessary to guarantee 16KB alignment
         // On standard Linux x86_64/ARM64, mmap generally returns 4KB/64KB/16KB aligned addresses.
         // We allocate aligned_size + PAGE_SIZE_16K, align up, and trim if needed.
@@ -127,7 +171,10 @@ impl MemoryRegion {
 
         if raw_ptr == libc::MAP_FAILED || raw_ptr.is_null() {
             let errno = unsafe { *libc::__errno_location() };
-            return Err(MemoryError::AllocationFailed { size: alloc_size, errno });
+            return Err(MemoryError::AllocationFailed {
+                size: alloc_size,
+                errno,
+            });
         }
 
         let addr = raw_ptr as usize;
@@ -145,7 +192,10 @@ impl MemoryRegion {
         // Unmap suffix padding if any
         if suffix_len > 0 {
             unsafe {
-                libc::munmap((aligned_addr + aligned_size) as *mut libc::c_void, suffix_len);
+                libc::munmap(
+                    (aligned_addr + aligned_size) as *mut libc::c_void,
+                    suffix_len,
+                );
             }
         }
 
@@ -153,11 +203,18 @@ impl MemoryRegion {
 
         // Apply desired protection
         if prot != ProtFlags::READ_WRITE {
-            let ret = unsafe { libc::mprotect(final_ptr as *mut libc::c_void, aligned_size, prot.0) };
+            let ret =
+                unsafe { libc::mprotect(final_ptr as *mut libc::c_void, aligned_size, prot.0) };
             if ret != 0 {
                 let errno = unsafe { *libc::__errno_location() };
-                unsafe { libc::munmap(final_ptr as *mut libc::c_void, aligned_size); }
-                return Err(MemoryError::ProtectionFailed { addr: aligned_addr, size: aligned_size, errno });
+                unsafe {
+                    libc::munmap(final_ptr as *mut libc::c_void, aligned_size);
+                }
+                return Err(MemoryError::ProtectionFailed {
+                    addr: aligned_addr,
+                    size: aligned_size,
+                    errno,
+                });
             }
         }
 
@@ -177,9 +234,8 @@ impl MemoryRegion {
 
     /// Changes the memory protection flags for the entire region.
     pub fn protect(&mut self, new_prot: ProtFlags) -> Result<(), MemoryError> {
-        let ret = unsafe {
-            libc::mprotect(self.ptr.as_ptr() as *mut libc::c_void, self.len, new_prot.0)
-        };
+        let ret =
+            unsafe { libc::mprotect(self.ptr.as_ptr() as *mut libc::c_void, self.len, new_prot.0) };
         if ret != 0 {
             let errno = unsafe { *libc::__errno_location() };
             return Err(MemoryError::ProtectionFailed {
@@ -248,7 +304,10 @@ impl MemoryRegion {
 
     /// Writes a slice of data at a specific offset.
     pub fn write_at(&mut self, offset: usize, data: &[u8]) -> Result<(), MemoryError> {
-        if offset.checked_add(data.len()).map_or(true, |end| end > self.len) {
+        if offset
+            .checked_add(data.len())
+            .map_or(true, |end| end > self.len)
+        {
             return Err(MemoryError::OutOfBounds {
                 offset,
                 len: data.len(),

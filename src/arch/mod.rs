@@ -36,7 +36,11 @@ impl HostArch {
         {
             Self::Riscv64
         }
-        #[cfg(not(any(target_arch = "aarch64", target_arch = "x86_64", target_arch = "riscv64")))]
+        #[cfg(not(any(
+            target_arch = "aarch64",
+            target_arch = "x86_64",
+            target_arch = "riscv64"
+        )))]
         {
             Self::Unknown
         }

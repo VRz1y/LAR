@@ -61,11 +61,8 @@ fn test_bionic_liblog_writing() {
         let tag = CString::new("NativeEngine").unwrap();
         let msg = CString::new("Initializing 3D renderer...").unwrap();
 
-        let ret = liblog::bionic_android_log_write(
-            liblog::ANDROID_LOG_INFO,
-            tag.as_ptr(),
-            msg.as_ptr(),
-        );
+        let ret =
+            liblog::bionic_android_log_write(liblog::ANDROID_LOG_INFO, tag.as_ptr(), msg.as_ptr());
         assert!(ret > 0);
     }
 }

@@ -1,5 +1,6 @@
 //! LAR Test Harness CLI Entry Point.
 
+use lar::api_policy::AndroidApi;
 use lar_tester::qemu::QemuEnvironment;
 use lar_tester::runner::LarTestHarness;
 use std::env;
@@ -9,9 +10,11 @@ fn print_usage() {
     println!("LAR Test Runner & QEMU/APK Validator");
     println!("Usage:");
     println!("  lar-tester --self-test                 Run synthetic end-to-end self tests");
-    println!("  lar-tester --apk <path/to/app.apk>     Extract and test all ARM64 libraries in an APK");
+    println!("  lar-tester --apk <path/to/app.apk> [--api 35|36]     Extract and test an APK");
     println!("  lar-tester --lib <path/to/lib.so>      Test a standalone ARM64 .so library");
-    println!("  lar-tester --check-qemu                Check QEMU aarch64 environment and sysroots");
+    println!(
+        "  lar-tester --check-qemu                Check QEMU aarch64 environment and sysroots"
+    );
 }
 
 fn main() {
@@ -37,6 +40,9 @@ fn main() {
             println!("  QEMU Binary : {:?}", qemu.qemu_path);
             println!("  Sysroot     : {:?}", qemu.sysroot_path);
             println!("  Available   : {}", qemu.is_available);
+            if !qemu.is_available {
+                process::exit(1);
+            }
         }
         "--apk" => {
             if args.len() < 3 {
@@ -44,8 +50,14 @@ fn main() {
                 process::exit(1);
             }
             let apk_path = &args[2];
+            let api = args
+                .windows(2)
+                .find(|window| window[0] == "--api")
+                .and_then(|window| window[1].parse().ok())
+                .map(AndroidApi)
+                .unwrap_or(AndroidApi::API_36);
             println!("[LAR-TESTER] Testing APK: {}", apk_path);
-            match LarTestHarness::test_apk(apk_path) {
+            match LarTestHarness::test_apk_for_api(apk_path, api) {
                 Ok(report) => {
                     println!("{}", report);
                     if !report.is_success() {

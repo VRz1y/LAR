@@ -52,7 +52,10 @@ fn test_syscall_mmap_16k_alignment() {
     dispatcher.dispatch(&mut ctx);
     let mapped_addr = ctx.get_return() as usize;
     assert!(mapped_addr > 0);
-    assert!(is_16k_aligned(mapped_addr), "mmap must return a 16KB aligned address");
+    assert!(
+        is_16k_aligned(mapped_addr),
+        "mmap must return a 16KB aligned address"
+    );
 
     // Test mprotect
     ctx.regs[8] = ARM64_NR_MPROTECT as u64;
@@ -75,11 +78,7 @@ fn test_virtual_procfs_routing() {
     let dispatcher = SyscallDispatcher::new();
     let mut ctx = Arm64CpuContext::new();
 
-    let paths = [
-        "/proc/cpuinfo",
-        "/proc/version",
-        "/proc/self/cmdline",
-    ];
+    let paths = ["/proc/cpuinfo", "/proc/version", "/proc/self/cmdline"];
 
     for path_str in paths {
         let c_path = CString::new(path_str).unwrap();

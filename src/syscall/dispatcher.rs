@@ -64,16 +64,7 @@ impl SyscallDispatcher {
         ctx.set_return(ret as u64);
     }
 
-    fn handle_syscall(
-        &self,
-        nr: u32,
-        a0: u64,
-        a1: u64,
-        a2: u64,
-        a3: u64,
-        a4: u64,
-        a5: u64,
-    ) -> i64 {
+    fn handle_syscall(&self, nr: u32, a0: u64, a1: u64, a2: u64, a3: u64, a4: u64, a5: u64) -> i64 {
         match nr {
             ARM64_NR_GETPID => unsafe { libc::getpid() as i64 },
             ARM64_NR_GETPPID => unsafe { libc::getppid() as i64 },
@@ -206,11 +197,7 @@ impl SyscallDispatcher {
                     }
                 }
 
-                let aligned_addr = if addr != 0 {
-                    align_down_16k(addr)
-                } else {
-                    0
-                };
+                let aligned_addr = if addr != 0 { align_down_16k(addr) } else { 0 };
 
                 let ptr = unsafe {
                     libc::mmap(
@@ -251,7 +238,8 @@ impl SyscallDispatcher {
                 let aligned_addr = align_down_16k(addr);
                 let aligned_len = align_up_16k(len);
 
-                let res = unsafe { libc::mprotect(aligned_addr as *mut libc::c_void, aligned_len, prot) };
+                let res =
+                    unsafe { libc::mprotect(aligned_addr as *mut libc::c_void, aligned_len, prot) };
                 if res < 0 {
                     -unsafe { *libc::__errno_location() as i64 }
                 } else {
@@ -273,18 +261,14 @@ impl SyscallDispatcher {
                 }
             }
 
-            ARM64_NR_SCHED_YIELD => {
-                unsafe { libc::sched_yield() as i64 }
-            }
+            ARM64_NR_SCHED_YIELD => unsafe { libc::sched_yield() as i64 },
 
             ARM64_NR_EXIT => {
                 // Exit thread / return 0
                 0
             }
 
-            ARM64_NR_EXIT_GROUP => {
-                0
-            }
+            ARM64_NR_EXIT_GROUP => 0,
 
             _ => {
                 // Return -ENOSYS for unimplemented syscalls

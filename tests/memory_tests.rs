@@ -48,7 +48,7 @@ fn test_page_span_calculation() {
     assert_eq!(page_count_16k(0, 0x4000), 1);
     assert_eq!(page_count_16k(0, 0x4001), 2);
     assert_eq!(page_count_16k(0x1000, 0x3000), 1); // 0x1000 to 0x4000 fits in 1 page (0..0x4000)
-    assert_eq!(page_count_16k(0x3FFF, 2), 2);       // 0x3FFF..0x4001 spans 2 pages
+    assert_eq!(page_count_16k(0x3FFF, 2), 2); // 0x3FFF..0x4001 spans 2 pages
 }
 
 #[test]
@@ -56,7 +56,11 @@ fn test_memory_region_allocation_and_16k_guarantee() {
     let mut region = MemoryRegion::allocate_16k(100, ProtFlags::READ_WRITE).unwrap();
     let addr = region.as_ptr() as usize;
 
-    assert!(is_16k_aligned(addr), "Allocated region must be 16KB aligned: 0x{:x}", addr);
+    assert!(
+        is_16k_aligned(addr),
+        "Allocated region must be 16KB aligned: 0x{:x}",
+        addr
+    );
     assert!(region.len() >= PAGE_SIZE_16K);
 
     let test_bytes = [0xde, 0xad, 0xbe, 0xef, 0xca, 0xfe];

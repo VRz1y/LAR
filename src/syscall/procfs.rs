@@ -4,8 +4,8 @@
 //! to present a pristine Android ARM64 environment to guest applications and packers.
 
 use std::collections::HashMap;
-use std::sync::atomic::{AtomicI32, Ordering};
 use std::sync::RwLock;
+use std::sync::atomic::{AtomicI32, Ordering};
 
 /// Represents a virtual procfs file entry with generated content.
 #[derive(Debug, Clone)]
@@ -167,7 +167,9 @@ mod tests {
         assert!(procfs.is_virtual_path("/proc/cpuinfo"));
         assert!(procfs.is_virtual_path("/proc/self/maps"));
 
-        let fd = procfs.open("/proc/cpuinfo").expect("Failed to open /proc/cpuinfo");
+        let fd = procfs
+            .open("/proc/cpuinfo")
+            .expect("Failed to open /proc/cpuinfo");
         assert!(procfs.is_virtual_fd(fd));
 
         let mut buf = [0u8; 128];

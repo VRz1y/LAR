@@ -6,7 +6,8 @@
 use crate::linker::elf::*;
 use crate::linker::symbols::{DynamicSymbolTable, SymbolRegistry};
 use crate::memory::mmap::{MemoryError, MemoryRegion, ProtFlags};
-use crate::memory::page::{align_up_16k, is_16k_aligned, PAGE_SIZE_16K};
+use crate::memory::page::{PAGE_SIZE_16K, align_up_16k, is_16k_aligned};
+use std::cell::Cell;
 use std::fmt;
 
 /// Errors that can occur during library loading and dynamic linking.
@@ -18,6 +19,7 @@ pub enum LoaderError {
     UnsupportedRelocation(u32),
     IoError(std::io::Error),
     RelocationFailed { offset: usize, msg: String },
+    InvalidStartupAddress(usize),
 }
 
 impl fmt::Display for LoaderError {
@@ -30,6 +32,9 @@ impl fmt::Display for LoaderError {
             Self::IoError(e) => write!(f, "I/O error: {}", e),
             Self::RelocationFailed { offset, msg } => {
                 write!(f, "Relocation failed at offset 0x{:x}: {}", offset, msg)
+            }
+            Self::InvalidStartupAddress(address) => {
+                write!(f, "Invalid startup address: 0x{:x}", address)
             }
         }
     }
@@ -64,6 +69,31 @@ pub struct LoadedLibrary {
     pub init_array: Vec<usize>,
     pub fini_array: Vec<usize>,
     pub entry_point: Option<usize>,
+    pub init: Option<usize>,
+    pub jni_on_load: Option<usize>,
+    pub init_routines: Vec<InitRoutine>,
+    lifecycle: Cell<LibraryLifecycle>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum InitRoutineKind {
+    DtInit,
+    DtInitArray,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct InitRoutine {
+    pub address: usize,
+    pub kind: InitRoutineKind,
+    pub order: usize,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum LibraryLifecycle {
+    Loaded,
+    StartupPrepared,
+    Initialized,
+    Finalized,
 }
 
 impl LoadedLibrary {
@@ -74,11 +104,29 @@ impl LoadedLibrary {
 
     /// Calls all initialization routines in `DT_INIT` and `DT_INIT_ARRAY`.
     pub unsafe fn call_init_routines(&self) {
-        for &init_fn in &self.init_array {
+        if self.lifecycle.get() != LibraryLifecycle::StartupPrepared {
+            return;
+        }
+        for routine in &self.init_routines {
+            let init_fn = routine.address;
             if init_fn != 0 {
                 let func: extern "C" fn() = unsafe { std::mem::transmute(init_fn) };
                 func();
             }
+        }
+        self.lifecycle.set(LibraryLifecycle::Initialized);
+    }
+
+    pub fn lifecycle(&self) -> LibraryLifecycle {
+        self.lifecycle.get()
+    }
+
+    pub fn prepare_startup(&self) -> bool {
+        if self.lifecycle.get() == LibraryLifecycle::Loaded {
+            self.lifecycle.set(LibraryLifecycle::StartupPrepared);
+            true
+        } else {
+            false
         }
     }
 }
@@ -91,6 +139,8 @@ impl fmt::Debug for LoadedLibrary {
             .field("size", &self.mem_region.len())
             .field("16k_aligned", &is_16k_aligned(self.load_base))
             .field("init_array_len", &self.init_array.len())
+            .field("jni_on_load", &self.jni_on_load)
+            .field("lifecycle", &self.lifecycle())
             .finish()
     }
 }
@@ -108,7 +158,9 @@ impl ElfLoader {
         let parsed = ParsedElf::parse(elf_bytes)?;
 
         if parsed.load_segments.is_empty() {
-            return Err(LoaderError::Elf(ElfError::CorruptedData("No PT_LOAD segments found")));
+            return Err(LoaderError::Elf(ElfError::CorruptedData(
+                "No PT_LOAD segments found",
+            )));
         }
 
         // Calculate total memory size aligned up to 16KB
@@ -225,14 +277,17 @@ impl ElfLoader {
         let process_rela_table = |rela_vaddr: usize, total_sz: usize| -> Result<(), LoaderError> {
             let entry_size = 24; // sizeof(Elf64_Rela)
             if rela_vaddr + total_sz > mem_region.len() {
-                return Err(LoaderError::Elf(ElfError::CorruptedData("Relocation table exceeds mapped bounds")));
+                return Err(LoaderError::Elf(ElfError::CorruptedData(
+                    "Relocation table exceeds mapped bounds",
+                )));
             }
             let num_relas = total_sz / entry_size;
             let rela_ptr = (load_base + rela_vaddr) as *const u8;
 
             for i in 0..num_relas {
                 let start = i * entry_size;
-                let rela_bytes = unsafe { std::slice::from_raw_parts(rela_ptr.add(start), entry_size) };
+                let rela_bytes =
+                    unsafe { std::slice::from_raw_parts(rela_ptr.add(start), entry_size) };
                 let rela = Elf64Rela::parse(rela_bytes)?;
 
                 let target_offset = rela.r_offset as usize;
@@ -258,7 +313,7 @@ impl ElfLoader {
                     R_AARCH64_GLOB_DAT | R_AARCH64_JUMP_SLOT | R_AARCH64_ABS64 => {
                         let sym = symtab.get(sym_idx);
                         let sym_name = sym.map(|s| s.name.as_str()).unwrap_or("");
-                        
+
                         // Try resolving from local symtab, then global registry
                         let sym_addr = if let Some(s) = sym {
                             if s.address != 0 {
@@ -285,7 +340,7 @@ impl ElfLoader {
                         }
                     }
                     _ => {
-                        // Skip or report unsupported
+                        return Err(LoaderError::UnsupportedRelocation(r_type));
                     }
                 }
             }
@@ -301,9 +356,21 @@ impl ElfLoader {
 
         // Step 4: Extract Initialization & Finalization functions
         let mut init_array = Vec::new();
+        let mut init_routines = Vec::new();
         if let Some(init) = init_fn {
             if init != 0 {
-                init_array.push(load_base + init);
+                let address = load_base
+                    .checked_add(init)
+                    .ok_or(LoaderError::InvalidStartupAddress(init))?;
+                if address < load_base || address >= load_base + mem_region.len() {
+                    return Err(LoaderError::InvalidStartupAddress(address));
+                }
+                init_array.push(address);
+                init_routines.push(InitRoutine {
+                    address,
+                    kind: InitRoutineKind::DtInit,
+                    order: 0,
+                });
             }
         }
         if let Some(off) = init_array_offset {
@@ -313,7 +380,22 @@ impl ElfLoader {
                 for i in 0..count {
                     let func_ptr = unsafe { *array_ptr.add(i) } as usize;
                     if func_ptr != 0 {
-                        init_array.push(func_ptr);
+                        let address = if func_ptr < mem_region.len() {
+                            load_base
+                                .checked_add(func_ptr)
+                                .ok_or(LoaderError::InvalidStartupAddress(func_ptr))?
+                        } else {
+                            func_ptr
+                        };
+                        if address < load_base || address >= load_base + mem_region.len() {
+                            return Err(LoaderError::InvalidStartupAddress(address));
+                        }
+                        init_array.push(address);
+                        init_routines.push(InitRoutine {
+                            address,
+                            kind: InitRoutineKind::DtInitArray,
+                            order: i,
+                        });
                     }
                 }
             }
@@ -344,6 +426,8 @@ impl ElfLoader {
             None
         };
 
+        let jni_on_load = symtab.lookup("JNI_OnLoad").map(|symbol| symbol.address);
+
         Ok(LoadedLibrary {
             name: name.to_string(),
             load_base,
@@ -352,6 +436,10 @@ impl ElfLoader {
             init_array,
             fini_array,
             entry_point,
+            init: init_fn.map(|value| load_base + value),
+            jni_on_load,
+            init_routines,
+            lifecycle: Cell::new(LibraryLifecycle::Loaded),
         })
     }
 }

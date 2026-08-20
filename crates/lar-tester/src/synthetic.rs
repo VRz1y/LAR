@@ -8,6 +8,8 @@ use lar::linker::elf::*;
 /// Generates a valid 64-bit ARM64 shared library ELF binary in memory with exported symbols.
 pub fn generate_synthetic_arm64_so(lib_name: &str, export_symbol: &str) -> Vec<u8> {
     let mut elf = vec![0u8; 0x2000];
+    elf[0x800..0x804].copy_from_slice(&0xd503201fu32.to_le_bytes());
+    elf[0x804..0x808].copy_from_slice(&0xd65f03c0u32.to_le_bytes());
 
     // 1. ELF Header (64 bytes)
     elf[0..4].copy_from_slice(&ELFMAG);

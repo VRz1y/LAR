@@ -106,13 +106,25 @@ impl fmt::Display for ElfError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Self::BufferTooSmall { expected, found } => {
-                write!(f, "ELF buffer too small: expected {} bytes, found {}", expected, found)
+                write!(
+                    f,
+                    "ELF buffer too small: expected {} bytes, found {}",
+                    expected, found
+                )
             }
             Self::InvalidMagic => write!(f, "Invalid ELF magic bytes"),
-            Self::UnsupportedClass(c) => write!(f, "Unsupported ELF class: {} (expected 64-bit)", c),
-            Self::UnsupportedDataEncoding(d) => write!(f, "Unsupported endianness: {} (expected 2LSB)", d),
-            Self::UnsupportedMachine(m) => write!(f, "Unsupported machine type: {} (expected AArch64)", m),
-            Self::UnsupportedType(t) => write!(f, "Unsupported ELF type: {} (expected ET_DYN / ET_EXEC)", t),
+            Self::UnsupportedClass(c) => {
+                write!(f, "Unsupported ELF class: {} (expected 64-bit)", c)
+            }
+            Self::UnsupportedDataEncoding(d) => {
+                write!(f, "Unsupported endianness: {} (expected 2LSB)", d)
+            }
+            Self::UnsupportedMachine(m) => {
+                write!(f, "Unsupported machine type: {} (expected AArch64)", m)
+            }
+            Self::UnsupportedType(t) => {
+                write!(f, "Unsupported ELF type: {} (expected ET_DYN / ET_EXEC)", t)
+            }
             Self::InvalidHeaderSize => write!(f, "Invalid ELF header size"),
             Self::InvalidDynamicSection => write!(f, "Corrupted or missing ELF dynamic section"),
             Self::StringTableNotFound => write!(f, "ELF dynamic string table not found"),
@@ -147,7 +159,10 @@ pub struct Elf64Ehdr {
 impl Elf64Ehdr {
     pub fn parse(bytes: &[u8]) -> Result<Self, ElfError> {
         if bytes.len() < 64 {
-            return Err(ElfError::BufferTooSmall { expected: 64, found: bytes.len() });
+            return Err(ElfError::BufferTooSmall {
+                expected: 64,
+                found: bytes.len(),
+            });
         }
         if bytes[0..4] != ELFMAG {
             return Err(ElfError::InvalidMagic);
@@ -219,7 +234,10 @@ pub struct Elf64Phdr {
 impl Elf64Phdr {
     pub fn parse(bytes: &[u8]) -> Result<Self, ElfError> {
         if bytes.len() < 56 {
-            return Err(ElfError::BufferTooSmall { expected: 56, found: bytes.len() });
+            return Err(ElfError::BufferTooSmall {
+                expected: 56,
+                found: bytes.len(),
+            });
         }
         Ok(Self {
             p_type: u32::from_le_bytes(bytes[0..4].try_into().unwrap()),
@@ -270,7 +288,10 @@ pub struct Elf64Dyn {
 impl Elf64Dyn {
     pub fn parse(bytes: &[u8]) -> Result<Self, ElfError> {
         if bytes.len() < 16 {
-            return Err(ElfError::BufferTooSmall { expected: 16, found: bytes.len() });
+            return Err(ElfError::BufferTooSmall {
+                expected: 16,
+                found: bytes.len(),
+            });
         }
         Ok(Self {
             d_tag: u64::from_le_bytes(bytes[0..8].try_into().unwrap()),
@@ -294,7 +315,10 @@ pub struct Elf64Sym {
 impl Elf64Sym {
     pub fn parse(bytes: &[u8]) -> Result<Self, ElfError> {
         if bytes.len() < 24 {
-            return Err(ElfError::BufferTooSmall { expected: 24, found: bytes.len() });
+            return Err(ElfError::BufferTooSmall {
+                expected: 24,
+                found: bytes.len(),
+            });
         }
         Ok(Self {
             st_name: u32::from_le_bytes(bytes[0..4].try_into().unwrap()),
@@ -344,7 +368,10 @@ pub struct Elf64Rela {
 impl Elf64Rela {
     pub fn parse(bytes: &[u8]) -> Result<Self, ElfError> {
         if bytes.len() < 24 {
-            return Err(ElfError::BufferTooSmall { expected: 24, found: bytes.len() });
+            return Err(ElfError::BufferTooSmall {
+                expected: 24,
+                found: bytes.len(),
+            });
         }
         Ok(Self {
             r_offset: u64::from_le_bytes(bytes[0..8].try_into().unwrap()),
@@ -389,7 +416,10 @@ impl ParsedElf {
             let start = phoff + i * phentsize;
             let end = start + phentsize;
             if end > bytes.len() {
-                return Err(ElfError::BufferTooSmall { expected: end, found: bytes.len() });
+                return Err(ElfError::BufferTooSmall {
+                    expected: end,
+                    found: bytes.len(),
+                });
             }
             phdrs.push(Elf64Phdr::parse(&bytes[start..end])?);
         }

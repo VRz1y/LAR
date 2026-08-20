@@ -76,7 +76,12 @@ impl SignalDispatcher {
     }
 
     /// Dispatches a signal to a guest handler if registered, setting up the guest context.
-    pub fn dispatch_to_guest(&self, signum: i32, ctx: &mut Arm64CpuContext, fault_addr: u64) -> bool {
+    pub fn dispatch_to_guest(
+        &self,
+        signum: i32,
+        ctx: &mut Arm64CpuContext,
+        fault_addr: u64,
+    ) -> bool {
         if let Some(action) = self.get_handler(signum) {
             if action.handler != 0 && action.handler != usize::MAX {
                 // Prepare guest context for signal handler invocation:

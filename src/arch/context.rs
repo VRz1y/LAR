@@ -43,11 +43,7 @@ impl Arm64CpuContext {
     /// Gets an integer argument register (x0..x7).
     #[inline]
     pub fn get_arg(&self, index: usize) -> u64 {
-        if index < 8 {
-            self.regs[index]
-        } else {
-            0
-        }
+        if index < 8 { self.regs[index] } else { 0 }
     }
 
     /// Sets an integer argument register (x0..x7).
@@ -173,10 +169,18 @@ impl Arm64CpuContext {
     /// Sets NZCV condition flags.
     pub fn set_flags(&mut self, n: bool, z: bool, c: bool, v: bool) {
         let mut mask = 0u64;
-        if n { mask |= 1 << 31; }
-        if z { mask |= 1 << 30; }
-        if c { mask |= 1 << 29; }
-        if v { mask |= 1 << 28; }
+        if n {
+            mask |= 1 << 31;
+        }
+        if z {
+            mask |= 1 << 30;
+        }
+        if c {
+            mask |= 1 << 29;
+        }
+        if v {
+            mask |= 1 << 28;
+        }
         self.pstate = (self.pstate & !(0xF << 28)) | mask;
     }
 }

@@ -31,11 +31,26 @@ pub fn register_bionic_shims(registry: &mut SymbolRegistry) {
     registry.register("exit", libc::bionic_exit as *const () as usize);
 
     // libc pthread functions
-    registry.register("pthread_self", libc::bionic_pthread_self as *const () as usize);
-    registry.register("pthread_mutex_init", libc::bionic_pthread_mutex_init as *const () as usize);
-    registry.register("pthread_mutex_lock", libc::bionic_pthread_mutex_lock as *const () as usize);
-    registry.register("pthread_mutex_unlock", libc::bionic_pthread_mutex_unlock as *const () as usize);
-    registry.register("pthread_mutex_destroy", libc::bionic_pthread_mutex_destroy as *const () as usize);
+    registry.register(
+        "pthread_self",
+        libc::bionic_pthread_self as *const () as usize,
+    );
+    registry.register(
+        "pthread_mutex_init",
+        libc::bionic_pthread_mutex_init as *const () as usize,
+    );
+    registry.register(
+        "pthread_mutex_lock",
+        libc::bionic_pthread_mutex_lock as *const () as usize,
+    );
+    registry.register(
+        "pthread_mutex_unlock",
+        libc::bionic_pthread_mutex_unlock as *const () as usize,
+    );
+    registry.register(
+        "pthread_mutex_destroy",
+        libc::bionic_pthread_mutex_destroy as *const () as usize,
+    );
 
     // libm math functions
     registry.register("sin", libm::bionic_sin as *const () as usize);
@@ -66,11 +81,26 @@ pub fn register_bionic_shims(registry: &mut SymbolRegistry) {
     registry.register("dladdr", libdl::bionic_dladdr as *const () as usize);
 
     // liblog Android logger functions
-    registry.register("__android_log_write", liblog::bionic_android_log_write as *const () as usize);
-    registry.register("__android_log_print", liblog::bionic_android_log_print as *const () as usize);
-    registry.register("__android_log_buf_write", liblog::bionic_android_log_buf_write as *const () as usize);
-    registry.register("__android_log_buf_print", liblog::bionic_android_log_buf_print as *const () as usize);
-    registry.register("__android_log_assert", liblog::bionic_android_log_assert as *const () as usize);
+    registry.register(
+        "__android_log_write",
+        liblog::bionic_android_log_write as *const () as usize,
+    );
+    registry.register(
+        "__android_log_print",
+        liblog::bionic_android_log_print as *const () as usize,
+    );
+    registry.register(
+        "__android_log_buf_write",
+        liblog::bionic_android_log_buf_write as *const () as usize,
+    );
+    registry.register(
+        "__android_log_buf_print",
+        liblog::bionic_android_log_buf_print as *const () as usize,
+    );
+    registry.register(
+        "__android_log_assert",
+        liblog::bionic_android_log_assert as *const () as usize,
+    );
 }
 
 #[cfg(test)]

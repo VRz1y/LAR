@@ -113,6 +113,9 @@ pub unsafe extern "C" fn bionic_android_log_assert(
         std::borrow::Cow::Borrowed("")
     };
 
-    eprintln!("[Logcat/Fatal/{}] Assertion '{}' failed: {}", tag_str, cond_str, msg);
+    eprintln!(
+        "[Logcat/Fatal/{}] Assertion '{}' failed: {}",
+        tag_str, cond_str, msg
+    );
     unsafe { libc::abort() }
 }

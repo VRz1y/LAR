@@ -20,7 +20,8 @@ pub type HostFn5 = unsafe extern "C" fn(usize, usize, usize, usize, usize) -> us
 /// Host signature for 6-argument C function.
 pub type HostFn6 = unsafe extern "C" fn(usize, usize, usize, usize, usize, usize) -> usize;
 /// Host signature for 8-argument C function.
-pub type HostFn8 = unsafe extern "C" fn(usize, usize, usize, usize, usize, usize, usize, usize) -> usize;
+pub type HostFn8 =
+    unsafe extern "C" fn(usize, usize, usize, usize, usize, usize, usize, usize) -> usize;
 
 /// Dynamic bridge handler taking guest context directly.
 pub type GuestBridgeHandler = fn(&mut Arm64CpuContext);
@@ -60,7 +61,10 @@ impl CallBridge {
             Self::ContextHandler(handler) => {
                 handler(ctx);
             }
-            Self::HostCFunction { func_ptr, arg_count } => {
+            Self::HostCFunction {
+                func_ptr,
+                arg_count,
+            } => {
                 let a0 = ctx.get_arg(0) as usize;
                 let a1 = ctx.get_arg(1) as usize;
                 let a2 = ctx.get_arg(2) as usize;

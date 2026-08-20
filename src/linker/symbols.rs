@@ -17,7 +17,13 @@ pub struct Symbol {
 }
 
 impl Symbol {
-    pub fn new(name: impl Into<String>, address: usize, size: usize, binding: u8, sym_type: u8) -> Self {
+    pub fn new(
+        name: impl Into<String>,
+        address: usize,
+        size: usize,
+        binding: u8,
+        sym_type: u8,
+    ) -> Self {
         Self {
             name: name.into(),
             address,
@@ -47,11 +53,7 @@ pub struct DynamicSymbolTable {
 
 impl DynamicSymbolTable {
     /// Parses symbol table from memory buffers.
-    pub fn parse(
-        symtab_data: &[u8],
-        strtab_data: &[u8],
-        load_base: usize,
-    ) -> Self {
+    pub fn parse(symtab_data: &[u8], strtab_data: &[u8], load_base: usize) -> Self {
         let sym_size = 24; // sizeof(Elf64_Sym)
         let count = symtab_data.len() / sym_size;
         let mut symbols = Vec::with_capacity(count);
@@ -62,7 +64,12 @@ impl DynamicSymbolTable {
             let end = start + sym_size;
             if let Ok(sym) = Elf64Sym::parse(&symtab_data[start..end]) {
                 // If past entry 0 and all fields are zero, we've reached uninitialized trailing space
-                if i > 0 && sym.st_name == 0 && sym.st_value == 0 && sym.st_size == 0 && sym.st_info == 0 {
+                if i > 0
+                    && sym.st_name == 0
+                    && sym.st_value == 0
+                    && sym.st_size == 0
+                    && sym.st_info == 0
+                {
                     break;
                 }
 
