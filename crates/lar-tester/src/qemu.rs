@@ -33,11 +33,11 @@ impl QemuEnvironment {
 
         let mut qemu_path = None;
         for name in &candidate_qemu_names {
-            if let Ok(output) = Command::new(name).arg("--version").output() {
-                if output.status.success() {
-                    qemu_path = Some(PathBuf::from(name));
-                    break;
-                }
+            if let Ok(output) = Command::new(name).arg("--version").output()
+                && output.status.success()
+            {
+                qemu_path = Some(PathBuf::from(name));
+                break;
             }
         }
 

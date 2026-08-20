@@ -1,9 +1,9 @@
 use crate::aidl::{self, AidlError, AidlFile};
 
 pub fn parse(source: &str) -> Result<AidlFile, AidlError> {
-    aidl::parse(&source.replace("interface ", "interface "))
+    aidl::parse(source)
 }
 
 pub fn generate_rust(file: &AidlFile) -> String {
-    aidl::generate_rust(file)
+    aidl::generate_hidl_rust(file)
 }

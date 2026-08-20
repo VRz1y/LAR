@@ -18,7 +18,7 @@ fn aidl_parser_and_generator_cover_interface_methods() {
     );
     let generated = generate_rust(&file);
     assert!(generated.contains("pub trait IThing"));
-    assert!(generated.contains("fn add"));
+    assert!(generated.contains("pub struct IThingStub"));
 }
 
 #[test]

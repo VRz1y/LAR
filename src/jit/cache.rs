@@ -10,7 +10,7 @@ use crate::memory::page::{PAGE_SIZE_16K, align_up_16k};
 use std::collections::HashMap;
 use std::fmt;
 use std::fs::{File, OpenOptions};
-use std::io::{Read, Write};
+use std::io::{Read, Seek, SeekFrom, Write};
 use std::path::Path;
 
 pub const CACHE_MAGIC: [u8; 8] = *b"LARCACH1";
@@ -60,6 +60,11 @@ impl From<MemoryError> for CacheError {
 
 /// Computes a fast 64-bit non-cryptographic hash for a block of ARM64 opcodes.
 pub fn hash_arm64_block(guest_pc: u64, opcodes: &[u32]) -> u64 {
+    hash_arm64_block_with_base(0, guest_pc, opcodes)
+}
+
+pub fn hash_arm64_block_with_base(base: u64, guest_pc: u64, opcodes: &[u32]) -> u64 {
+    let guest_pc = guest_pc.checked_sub(base).unwrap_or(guest_pc);
     let mut hash = 0xcbf29ce484222325u64; // FNV-1a 64 offset basis
     const PRIME: u64 = 0x100000001b3;
 
@@ -74,9 +79,16 @@ pub fn hash_arm64_block(guest_pc: u64, opcodes: &[u32]) -> u64 {
 }
 
 pub fn hash_arm64_block_with_context(ctx: &Arm64CpuContext, opcodes: &[u32]) -> u64 {
-    let mut hash = hash_arm64_block(ctx.pc, opcodes);
-    const PRIME: u64 = 0x100000001b3;
+    hash_arm64_block_with_context_and_base(0, ctx, opcodes)
+}
 
+pub fn hash_arm64_block_with_context_and_base(
+    base: u64,
+    ctx: &Arm64CpuContext,
+    opcodes: &[u32],
+) -> u64 {
+    const PRIME: u64 = 0x100000001b3;
+    let mut hash = hash_arm64_block_with_base(base, ctx.pc, opcodes);
     for &reg in &ctx.regs {
         hash ^= reg;
         hash = hash.wrapping_mul(PRIME);
@@ -182,6 +194,12 @@ impl MmapExecutionCache {
         expected_arch: HostArch,
     ) -> Result<Self, CacheError> {
         let mut file = File::open(path)?;
+        let file_len = usize::try_from(file.metadata()?.len())
+            .map_err(|_| CacheError::CorruptedCache("cache file is too large".into()))?;
+        if file_len < 16 {
+            return Err(CacheError::CorruptedCache("truncated cache header".into()));
+        }
+
         let mut header = [0u8; 16];
         file.read_exact(&mut header)?;
 
@@ -216,7 +234,6 @@ impl MmapExecutionCache {
         file.read_exact(&mut entries_bytes)?;
 
         let mut entries_map = HashMap::with_capacity(num_entries);
-        let mut max_end_offset = 0usize;
 
         for i in 0..num_entries {
             let start = i * 24;
@@ -237,30 +254,21 @@ impl MmapExecutionCache {
                     "block range overlaps cache header".into(),
                 ));
             }
-            if end > max_end_offset {
-                max_end_offset = end;
+            if end > file_len {
+                return Err(CacheError::CorruptedCache(
+                    "block range exceeds cache file".into(),
+                ));
             }
-
             entries_map.insert(hash, (offset, size));
         }
 
-        // Read rest of file
-        let total_file_size = align_up_16k(
-            max_end_offset
-                .checked_add(PAGE_SIZE_16K)
-                .ok_or_else(|| CacheError::CorruptedCache("cache size overflow".into()))?,
-        );
+        let total_file_size = align_up_16k(file_len.max(PAGE_SIZE_16K));
         let mut mem_region = MemoryRegion::allocate_16k(total_file_size, ProtFlags::READ_WRITE)?;
 
-        // Read entire file content into allocated memory
         let file_slice =
             unsafe { std::slice::from_raw_parts_mut(mem_region.as_mut_ptr(), total_file_size) };
-
-        file_slice[0..16].copy_from_slice(&header);
-        file_slice[16..16 + entries_bytes.len()].copy_from_slice(&entries_bytes);
-
-        let remaining_read = file.read(&mut file_slice[16 + entries_bytes.len()..])?;
-        let _ = remaining_read;
+        file.seek(SeekFrom::Start(0))?;
+        file.read_exact(&mut file_slice[..file_len])?;
 
         // Apply executable protection
         mem_region.protect(ProtFlags::READ_EXEC)?;

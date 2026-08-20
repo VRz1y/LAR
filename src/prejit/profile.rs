@@ -5,7 +5,7 @@
 
 /// Android Baseline Profile Magic ("pro\0" or "prof").
 pub const PROFILE_MAGIC_V015: [u8; 4] = [b'p', b'r', b'o', 0];
-pub const PROFILE_MAGIC_V010: [u8; 4] = [b'p', b'r', b'o', b'm'];
+pub const PROFILE_MAGIC_V010: [u8; 4] = *b"prom";
 
 /// Summary of hot startup methods and classes extracted from baseline profile.
 #[derive(Debug, Clone, Default)]

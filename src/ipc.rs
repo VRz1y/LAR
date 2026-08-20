@@ -73,14 +73,20 @@ impl Parcel {
     pub fn len(&self) -> usize {
         self.values.len()
     }
+    pub fn is_empty(&self) -> bool {
+        self.values.is_empty()
+    }
 }
 
 pub trait Binder: Send + Sync {
     fn transact(&self, code: u32, data: Parcel) -> Parcel;
 }
+type ParcelHandler = Box<dyn Fn(Parcel) -> Parcel + Send + Sync>;
+type ParcelHandlers = Arc<Mutex<HashMap<u32, ParcelHandler>>>;
+
 #[derive(Clone, Default)]
 pub struct MockBinder {
-    handlers: Arc<Mutex<HashMap<u32, Box<dyn Fn(Parcel) -> Parcel + Send + Sync>>>>,
+    handlers: ParcelHandlers,
 }
 impl MockBinder {
     pub fn new() -> Self {
@@ -162,6 +168,19 @@ pub struct CoreServiceState {
 }
 
 impl CoreServiceState {
+    pub fn from_managers(
+        package_manager: PackageManager,
+        activity_manager: ActivityManager,
+        window_manager: WindowManager,
+        input_dispatcher: InputDispatcher,
+    ) -> Self {
+        Self {
+            package_manager,
+            activity_manager,
+            window_manager,
+            input_dispatcher,
+        }
+    }
     pub fn new() -> Self {
         Self::default()
     }

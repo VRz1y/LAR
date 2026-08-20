@@ -1,4 +1,5 @@
 //! Android Bionic libm Replacement and Math Shims.
+#![allow(clippy::missing_safety_doc)]
 
 use std::os::raw::c_double;
 

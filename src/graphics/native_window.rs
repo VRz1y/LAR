@@ -14,7 +14,9 @@ pub enum WindowState {
 #[derive(Debug)]
 struct WindowInner {
     state: WindowState,
-    buffers: VecDeque<QueuedBuffer>,
+    available: VecDeque<GraphicBuffer>,
+    dequeued: Vec<GraphicBuffer>,
+    queued: VecDeque<QueuedBuffer>,
 }
 
 #[derive(Debug)]
@@ -33,7 +35,9 @@ impl ANativeWindow {
         Self {
             inner: Arc::new(Mutex::new(WindowInner {
                 state: WindowState::New,
-                buffers: VecDeque::with_capacity(3),
+                available: VecDeque::with_capacity(3),
+                dequeued: Vec::with_capacity(3),
+                queued: VecDeque::with_capacity(3),
             })),
         }
     }
@@ -49,30 +53,71 @@ impl ANativeWindow {
     pub fn set_buffer(
         &self,
         buffer: GraphicBuffer,
+        _acquire: Option<SyncFence>,
+    ) -> Result<(), WindowError> {
+        let mut inner = self.inner.lock().map_err(|_| WindowError::Poisoned)?;
+        if inner.state != WindowState::Connected {
+            return Err(WindowError::InvalidState);
+        }
+        if inner.available.len() + inner.dequeued.len() + inner.queued.len() >= 3 {
+            return Err(WindowError::QueueFull);
+        }
+        inner.available.push_back(buffer);
+        Ok(())
+    }
+    pub fn queue_buffer(
+        &self,
+        buffer: GraphicBuffer,
         acquire: Option<SyncFence>,
     ) -> Result<(), WindowError> {
         let mut inner = self.inner.lock().map_err(|_| WindowError::Poisoned)?;
         if inner.state != WindowState::Connected {
             return Err(WindowError::InvalidState);
         }
-        if inner.buffers.len() == 3 {
-            return Err(WindowError::QueueFull);
-        }
-        inner.buffers.push_back(QueuedBuffer {
+        let Some(index) = inner
+            .dequeued
+            .iter()
+            .position(|candidate| candidate == &buffer)
+        else {
+            return Err(WindowError::NotDequeued);
+        };
+        inner.dequeued.swap_remove(index);
+        inner.queued.push_back(QueuedBuffer {
             buffer,
             acquire_fence: acquire,
         });
         Ok(())
     }
     pub fn dequeue(&self) -> Result<GraphicBuffer, WindowError> {
-        Ok(self.dequeue_with_fence()?.buffer)
-    }
-    pub fn dequeue_with_fence(&self) -> Result<QueuedBuffer, WindowError> {
         let mut inner = self.inner.lock().map_err(|_| WindowError::Poisoned)?;
         if inner.state != WindowState::Connected {
             return Err(WindowError::InvalidState);
         }
-        inner.buffers.pop_front().ok_or(WindowError::NoBuffer)
+        let buffer = inner.available.pop_front().ok_or(WindowError::NoBuffer)?;
+        inner.dequeued.push(buffer.clone());
+        Ok(buffer)
+    }
+    pub fn acquire_queued(&self) -> Result<QueuedBuffer, WindowError> {
+        let mut inner = self.inner.lock().map_err(|_| WindowError::Poisoned)?;
+        if inner.state != WindowState::Connected {
+            return Err(WindowError::InvalidState);
+        }
+        inner.queued.pop_front().ok_or(WindowError::NoBuffer)
+    }
+    pub fn release_buffer(
+        &self,
+        buffer: GraphicBuffer,
+        _release: Option<SyncFence>,
+    ) -> Result<(), WindowError> {
+        let mut inner = self.inner.lock().map_err(|_| WindowError::Poisoned)?;
+        if inner.state != WindowState::Connected {
+            return Err(WindowError::InvalidState);
+        }
+        if inner.available.len() + inner.dequeued.len() + inner.queued.len() >= 3 {
+            return Err(WindowError::QueueFull);
+        }
+        inner.available.push_back(buffer);
+        Ok(())
     }
     fn transition(&self, state: WindowState) -> Result<(), WindowError> {
         let mut inner = self.inner.lock().map_err(|_| WindowError::Poisoned)?;
@@ -99,6 +144,7 @@ pub enum WindowError {
     NoBuffer,
     Poisoned,
     QueueFull,
+    NotDequeued,
 }
 impl fmt::Display for WindowError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {

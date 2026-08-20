@@ -239,11 +239,11 @@ mod tests {
     #[test]
     fn test_arm64_context_float_and_flags() {
         let mut ctx = Arm64CpuContext::new();
-        ctx.set_dreg(0, 3.14159);
-        assert!((ctx.get_dreg(0) - 3.14159).abs() < 1e-9);
+        ctx.set_dreg(0, std::f64::consts::PI);
+        assert!((ctx.get_dreg(0) - std::f64::consts::PI).abs() < 1e-9);
 
-        ctx.set_sreg(1, 2.718);
-        assert!((ctx.get_sreg(1) - 2.718).abs() < 1e-5);
+        ctx.set_sreg(1, std::f32::consts::E);
+        assert!((ctx.get_sreg(1) - std::f32::consts::E).abs() < 1e-5);
 
         ctx.set_flags(true, false, true, false);
         assert!(ctx.flag_n());

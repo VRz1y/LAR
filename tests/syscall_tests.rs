@@ -5,6 +5,22 @@ use lar::memory::is_16k_aligned;
 use lar::syscall::*;
 use std::ffi::CString;
 
+#[cfg(target_os = "linux")]
+#[test]
+fn test_seccomp_notify_detection_does_not_install_filter() {
+    let _supported = seccomp_notify_supported();
+}
+
+#[cfg(target_os = "linux")]
+#[test]
+fn test_seccomp_notify_rejects_invalid_config_without_installing_filter() {
+    let empty = SeccompNotifyListener::install(&SeccompNotifyConfig::default());
+    assert!(matches!(empty, Err(SeccompNotifyError::InvalidConfig)));
+
+    let negative = SeccompNotifyListener::install(&SeccompNotifyConfig::new(vec![-1]));
+    assert!(matches!(negative, Err(SeccompNotifyError::InvalidConfig)));
+}
+
 #[test]
 fn test_syscall_name_mapping() {
     assert_eq!(arm64_syscall_name(ARM64_NR_READ), "read");
@@ -43,7 +59,7 @@ fn test_syscall_mmap_16k_alignment() {
     // mmap(NULL, 1000, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANONYMOUS, -1, 0)
     ctx.regs[8] = ARM64_NR_MMAP as u64;
     ctx.regs[0] = 0;
-    ctx.regs[1] = 1000;
+    ctx.regs[1] = 0x8000;
     ctx.regs[2] = (libc::PROT_READ | libc::PROT_WRITE) as u64;
     ctx.regs[3] = (libc::MAP_PRIVATE | libc::MAP_ANONYMOUS) as u64;
     ctx.regs[4] = !0u64; // -1
@@ -61,6 +77,14 @@ fn test_syscall_mmap_16k_alignment() {
     ctx.regs[8] = ARM64_NR_MPROTECT as u64;
     ctx.regs[0] = mapped_addr as u64;
     ctx.regs[1] = 1000;
+    ctx.regs[2] = libc::PROT_READ as u64;
+    dispatcher.dispatch(&mut ctx);
+    assert_eq!(ctx.get_return(), 0);
+
+    // Test mprotect over a range crossing a 16KB boundary from an unaligned address.
+    ctx.regs[8] = ARM64_NR_MPROTECT as u64;
+    ctx.regs[0] = (mapped_addr + 0x3fff) as u64;
+    ctx.regs[1] = 2;
     ctx.regs[2] = libc::PROT_READ as u64;
     dispatcher.dispatch(&mut ctx);
     assert_eq!(ctx.get_return(), 0);

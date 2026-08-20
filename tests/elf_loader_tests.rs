@@ -172,6 +172,53 @@ fn build_synthetic_arm64_so() -> Vec<u8> {
     elf
 }
 
+fn build_nonzero_vaddr_arm64_so() -> Vec<u8> {
+    let mut elf = build_synthetic_arm64_so();
+    const DELTA: u64 = 0x10000;
+
+    elf[24..32].copy_from_slice(&(DELTA + 0x1000).to_le_bytes());
+    for phdr_offset in [64usize, 120, 176] {
+        let old_vaddr =
+            u64::from_le_bytes(elf[phdr_offset + 16..phdr_offset + 24].try_into().unwrap());
+        elf[phdr_offset + 16..phdr_offset + 24].copy_from_slice(&(old_vaddr + DELTA).to_le_bytes());
+    }
+
+    for entry in 0..8 {
+        let offset = 0x1000 + entry * 16;
+        let tag = u64::from_le_bytes(elf[offset..offset + 8].try_into().unwrap());
+        if matches!(
+            tag,
+            elf::DT_STRTAB | elf::DT_SYMTAB | elf::DT_RELA | elf::DT_INIT
+        ) {
+            let value = u64::from_le_bytes(elf[offset + 8..offset + 16].try_into().unwrap());
+            elf[offset + 8..offset + 16].copy_from_slice(&(value + DELTA).to_le_bytes());
+        }
+    }
+
+    elf[0x1320..0x1328].copy_from_slice(&(DELTA + 0x0500).to_le_bytes());
+    for offset in [0x1400usize, 0x1418] {
+        let target = u64::from_le_bytes(elf[offset..offset + 8].try_into().unwrap());
+        elf[offset..offset + 8].copy_from_slice(&(target + DELTA).to_le_bytes());
+    }
+    elf[0x1410..0x1418].copy_from_slice(&((DELTA + 0x0500) as i64).to_le_bytes());
+    elf
+}
+
+#[test]
+fn test_nonzero_vaddr_load_bias_and_dynamic_va() {
+    let elf_data = build_nonzero_vaddr_arm64_so();
+    let mut registry = SymbolRegistry::new();
+    lar::bionic::register_bionic_shims(&mut registry);
+
+    let loaded = ElfLoader::load_from_memory("libnonzero.so", &elf_data, &mut registry).unwrap();
+    assert_eq!(
+        loaded.lookup_symbol("native_calculate"),
+        Some(loaded.load_base + 0x10500)
+    );
+    assert_eq!(loaded.init_array, vec![loaded.load_base + 0x10500]);
+    assert_eq!(loaded.entry_point, Some(loaded.load_base + 0x11000));
+}
+
 #[test]
 fn test_load_and_link_synthetic_arm64_library() {
     let elf_data = build_synthetic_arm64_so();

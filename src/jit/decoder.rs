@@ -266,9 +266,9 @@ impl Arm64Decoder {
         }
 
         // MOVZ / MOVK / MOVN: sf 101 0010 1hw iiii iiii iiii iiii rrrr r
-        if (raw & 0x1f800000) == 0x12800000
-            || (raw & 0x1f800000) == 0x52800000
-            || (raw & 0x1f800000) == 0x72800000
+        if (raw & 0x7f800000) == 0x12800000
+            || (raw & 0x7f800000) == 0x52800000
+            || (raw & 0x7f800000) == 0x72800000
         {
             let is_64 = (raw & 0x80000000) != 0;
             let opc = (raw >> 29) & 0x3;
@@ -403,7 +403,7 @@ impl Arm64Decoder {
         }
 
         // LDP / STP (Load/Store Pair): opc 101 0 ...
-        if (raw & 0x3e000000) == 0x28000000 || (raw & 0x3e000000) == 0x29000000 {
+        if (raw & 0x3f000000) == 0x28000000 || (raw & 0x3f000000) == 0x29000000 {
             let is_load = (raw & 0x00400000) != 0;
             let is_64 = (raw & 0x80000000) != 0;
             let rt2 = ((raw >> 10) & 0x1f) as u8;

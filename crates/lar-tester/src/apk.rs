@@ -153,7 +153,7 @@ impl ApkReader {
                 native_library_paths.push(path);
             }
         }
-        dex_files.sort_by(|a, b| dex_sort_key(&a.name).cmp(&dex_sort_key(&b.name)));
+        dex_files.sort_by_key(|a| dex_sort_key(&a.name));
         if dex_files.is_empty() {
             return Err(ApkError::CorruptedEntry("classes.dex is missing".into()));
         }
@@ -493,18 +493,10 @@ fn inflate(input: &[u8], expected: usize) -> Result<Vec<u8>, ApkError> {
     let mut out = Vec::with_capacity(expected);
     let fixed_l = {
         let mut x = vec![0; 288];
-        for i in 0..=143 {
-            x[i] = 8
-        }
-        for i in 144..=255 {
-            x[i] = 9
-        }
-        for i in 256..=279 {
-            x[i] = 7
-        }
-        for i in 280..288 {
-            x[i] = 8
-        }
+        x[..=143].fill(8);
+        x[144..=255].fill(9);
+        x[256..=279].fill(7);
+        x[280..288].fill(8);
         x
     };
     let fixed = (huff(&fixed_l)?, huff(&[5; 32])?);

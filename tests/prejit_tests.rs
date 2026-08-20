@@ -15,6 +15,7 @@ fn test_prejit_callgraph_extraction_and_precompilation() {
 
     let loaded = ElfLoader::load_from_memory("libgame_core.so", &elf_bytes, &mut registry)
         .expect("Failed to load library");
+    let compiled_base = loaded.load_base;
 
     // 2. Build startup callgraph
     let nodes = CallgraphAnalyzer::build_startup_graph(&loaded);
@@ -45,9 +46,11 @@ fn test_prejit_callgraph_extraction_and_precompilation() {
     runtime
         .load_execution_cache(&cache_path)
         .expect("Failed to load generated cache");
-    let startup = &nodes[0];
+    let runtime_nodes = CallgraphAnalyzer::build_startup_graph(&runtime.loaded_libraries[0]);
+    let startup = &runtime_nodes[0];
     let mut ctx = Arm64CpuContext::new();
     ctx.pc = startup.address as u64;
+    assert_ne!(compiled_base, runtime.loaded_libraries[0].load_base);
     assert!(runtime.jit_engine.has_cached_block(&ctx, &startup.opcodes));
 
     let _ = std::fs::remove_file(cache_path);

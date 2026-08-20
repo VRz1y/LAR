@@ -101,6 +101,10 @@ impl<T> MutexRingBuffer<T> {
         self.queue.lock().unwrap().len()
     }
 
+    pub fn is_empty(&self) -> bool {
+        self.queue.lock().unwrap().is_empty()
+    }
+
     pub fn push(&self, value: T) -> Result<(), T> {
         let mut queue = self.queue.lock().unwrap();
         if queue.len() == self.capacity {

@@ -50,6 +50,168 @@ fn test_x86_codegen_multi_arithmetic() {
 
 #[cfg(target_arch = "x86_64")]
 #[test]
+fn test_x86_executable_branch_displacements_all_conditions() {
+    use lar::jit::ConditionCode;
+
+    let conditions = [
+        ConditionCode::EQ,
+        ConditionCode::NE,
+        ConditionCode::CS,
+        ConditionCode::CC,
+        ConditionCode::MI,
+        ConditionCode::PL,
+        ConditionCode::VS,
+        ConditionCode::VC,
+        ConditionCode::HI,
+        ConditionCode::LS,
+        ConditionCode::GE,
+        ConditionCode::LT,
+        ConditionCode::GT,
+        ConditionCode::LE,
+        ConditionCode::AL,
+        ConditionCode::NV,
+    ];
+
+    for cond in conditions {
+        let mut block = IrBlock::new(0x1000);
+        block.push(IrInstruction::new(
+            IrOpcode::Mov,
+            Some(IrReg::X(0)),
+            IrOperand::Imm(42),
+            None,
+        ));
+        block.push(IrInstruction::new(
+            IrOpcode::Cmp,
+            None,
+            IrOperand::Reg(IrReg::X(0)),
+            Some(IrOperand::Imm(0)),
+        ));
+        block.push(IrInstruction::new(
+            IrOpcode::CondBranch(cond),
+            None,
+            IrOperand::Imm(8),
+            None,
+        ));
+        block.push(IrInstruction::new(
+            IrOpcode::Mov,
+            Some(IrReg::X(0)),
+            IrOperand::Imm(7),
+            None,
+        ));
+        block.push(IrInstruction::new(
+            IrOpcode::Return,
+            None,
+            IrOperand::Reg(IrReg::X(0)),
+            None,
+        ));
+
+        let expected = match cond {
+            ConditionCode::NE
+            | ConditionCode::CS
+            | ConditionCode::PL
+            | ConditionCode::VC
+            | ConditionCode::HI
+            | ConditionCode::GE
+            | ConditionCode::GT
+            | ConditionCode::AL => 42,
+            _ => 7,
+        };
+        let exec = X86Backend::emit_executable(&block).expect("failed to emit branch block");
+        let func: extern "C" fn() -> u64 = unsafe { std::mem::transmute(exec.as_ptr()) };
+        assert_eq!(func(), expected, "condition {:?}", cond);
+    }
+}
+
+#[cfg(target_arch = "x86_64")]
+#[test]
+fn test_x86_executable_unconditional_branch_displacement() {
+    let mut block = IrBlock::new(0x1000);
+    block.push(IrInstruction::new(
+        IrOpcode::Branch,
+        None,
+        IrOperand::Imm(8),
+        None,
+    ));
+    block.push(IrInstruction::new(
+        IrOpcode::Mov,
+        Some(IrReg::X(0)),
+        IrOperand::Imm(1),
+        None,
+    ));
+    block.push(IrInstruction::new(
+        IrOpcode::Mov,
+        Some(IrReg::X(0)),
+        IrOperand::Imm(42),
+        None,
+    ));
+    block.push(IrInstruction::new(
+        IrOpcode::Return,
+        None,
+        IrOperand::Reg(IrReg::X(0)),
+        None,
+    ));
+
+    let code = X86Backend::compile_block(&block);
+    assert_eq!(code[0], 0xe9);
+    assert_eq!(i32::from_le_bytes(code[1..5].try_into().unwrap()), 10);
+    let exec = X86Backend::emit_executable(&block).expect("failed to emit branch block");
+    let func: extern "C" fn() -> u64 = unsafe { std::mem::transmute(exec.as_ptr()) };
+    assert_eq!(func(), 42);
+}
+
+#[test]
+fn test_riscv_mapping_x0_through_x28_is_unique() {
+    let mapped: Vec<u8> = (0..=28)
+        .map(|index| RiscvBackend::map_reg(IrReg::X(index)) as u8)
+        .collect();
+    let unique: std::collections::HashSet<u8> = mapped.iter().copied().collect();
+
+    assert_eq!(mapped.len(), 29);
+    assert_eq!(unique.len(), mapped.len());
+}
+
+#[cfg(target_arch = "x86_64")]
+#[test]
+fn test_x86_executable_conditional_branch_displacement() {
+    let mut block = IrBlock::new(0x1000);
+    block.push(IrInstruction::new(
+        IrOpcode::Mov,
+        Some(IrReg::X(0)),
+        IrOperand::Imm(1),
+        None,
+    ));
+    block.push(IrInstruction::new(
+        IrOpcode::Cmp,
+        None,
+        IrOperand::Reg(IrReg::X(0)),
+        Some(IrOperand::Imm(1)),
+    ));
+    block.push(IrInstruction::new(
+        IrOpcode::CondBranch(lar::jit::ConditionCode::EQ),
+        None,
+        IrOperand::Imm(8),
+        None,
+    ));
+    block.push(IrInstruction::new(
+        IrOpcode::Mov,
+        Some(IrReg::X(0)),
+        IrOperand::Imm(42),
+        None,
+    ));
+    block.push(IrInstruction::new(
+        IrOpcode::Return,
+        None,
+        IrOperand::Reg(IrReg::X(0)),
+        None,
+    ));
+
+    let exec = X86Backend::emit_executable(&block).expect("failed to emit branch block");
+    let func: extern "C" fn() -> u64 = unsafe { std::mem::transmute(exec.as_ptr()) };
+    assert_eq!(func(), 1);
+}
+
+#[cfg(target_arch = "x86_64")]
+#[test]
 fn test_x86_context_jit_updates_guest_state() {
     let mut engine = JitEngine::new();
     let mut ctx = Arm64CpuContext::new();

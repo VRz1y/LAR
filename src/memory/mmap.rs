@@ -151,12 +151,20 @@ impl MemoryRegion {
             });
         }
 
-        let aligned_size = align_up_16k(size);
-
-        // We allocate with extra padding if necessary to guarantee 16KB alignment
-        // On standard Linux x86_64/ARM64, mmap generally returns 4KB/64KB/16KB aligned addresses.
-        // We allocate aligned_size + PAGE_SIZE_16K, align up, and trim if needed.
-        let alloc_size = aligned_size + PAGE_SIZE_16K;
+        let aligned_size =
+            size.checked_add(PAGE_SIZE_16K - 1)
+                .ok_or(MemoryError::AllocationFailed {
+                    size,
+                    errno: libc::ENOMEM,
+                })?
+                & !(PAGE_SIZE_16K - 1);
+        let alloc_size =
+            aligned_size
+                .checked_add(PAGE_SIZE_16K)
+                .ok_or(MemoryError::AllocationFailed {
+                    size: aligned_size,
+                    errno: libc::ENOMEM,
+                })?;
 
         let raw_ptr = unsafe {
             libc::mmap(
@@ -306,7 +314,7 @@ impl MemoryRegion {
     pub fn write_at(&mut self, offset: usize, data: &[u8]) -> Result<(), MemoryError> {
         if offset
             .checked_add(data.len())
-            .map_or(true, |end| end > self.len)
+            .is_none_or(|end| end > self.len)
         {
             return Err(MemoryError::OutOfBounds {
                 offset,
@@ -321,7 +329,7 @@ impl MemoryRegion {
 
     /// Reads data from a specific offset into a vector.
     pub fn read_at(&self, offset: usize, len: usize) -> Result<Vec<u8>, MemoryError> {
-        if offset.checked_add(len).map_or(true, |end| end > self.len) {
+        if offset.checked_add(len).is_none_or(|end| end > self.len) {
             return Err(MemoryError::OutOfBounds {
                 offset,
                 len,

@@ -59,24 +59,30 @@ impl RiscvBackend {
             IrReg::X(6) => RiscvReg::A6,
             IrReg::X(7) => RiscvReg::A7,
             IrReg::X(8) => RiscvReg::T0,
+            IrReg::X(9) => RiscvReg::T1,
+            IrReg::X(10) => RiscvReg::T2,
+            IrReg::X(11) => RiscvReg::T3,
+            IrReg::X(12) => RiscvReg::T4,
+            IrReg::X(13) => RiscvReg::T5,
+            IrReg::X(14) => RiscvReg::T6,
+            IrReg::X(15) => RiscvReg::S2,
+            IrReg::X(16) => RiscvReg::S3,
+            IrReg::X(17) => RiscvReg::S4,
+            IrReg::X(18) => RiscvReg::S5,
+            IrReg::X(19) => RiscvReg::S6,
+            IrReg::X(20) => RiscvReg::S7,
+            IrReg::X(21) => RiscvReg::S8,
+            IrReg::X(22) => RiscvReg::S9,
+            IrReg::X(23) => RiscvReg::S10,
+            IrReg::X(24) => RiscvReg::S11,
+            IrReg::X(25) => RiscvReg::Gp,
+            IrReg::X(26) => RiscvReg::Tp,
+            IrReg::X(27) => RiscvReg::S1,
+            IrReg::X(28) => RiscvReg::Ra,
             IrReg::X(29) => RiscvReg::S0,
             IrReg::X(30) => RiscvReg::Ra,
+            IrReg::X(_) => RiscvReg::A0,
             IrReg::SP => RiscvReg::Sp,
-            IrReg::X(n) => {
-                let idx = (n % 10) + 18;
-                match idx {
-                    18 => RiscvReg::S2,
-                    19 => RiscvReg::S3,
-                    20 => RiscvReg::S4,
-                    21 => RiscvReg::S5,
-                    22 => RiscvReg::S6,
-                    23 => RiscvReg::S7,
-                    24 => RiscvReg::S8,
-                    25 => RiscvReg::S9,
-                    26 => RiscvReg::S10,
-                    _ => RiscvReg::S11,
-                }
-            }
             _ => RiscvReg::A0,
         }
     }
@@ -108,17 +114,13 @@ impl RiscvBackend {
                     // li rd, imm (addi rd, x0, imm if fits in 12-bit)
                     let imm12 = (imm as u32) & 0xfff;
                     code.push(
-                        (imm12 << 20)
-                            | ((RiscvReg::Zero as u32) << 15)
-                            | (0b000 << 12)
-                            | (rd << 7)
-                            | 0b0010011,
+                        ((imm12 << 20) | ((RiscvReg::Zero as u32) << 15)) | (rd << 7) | 0b0010011,
                     );
                 } else if let (Some(dst), IrOperand::Reg(src)) = (inst.dst, inst.src1) {
                     let rd = Self::map_reg(dst) as u32;
                     let rs = Self::map_reg(src) as u32;
                     // mv rd, rs (addi rd, rs, 0)
-                    code.push((rs << 15) | (0b000 << 12) | (rd << 7) | 0b0010011);
+                    code.push((rs << 15) | (rd << 7) | 0b0010011);
                 }
             }
             IrOpcode::Add => {
@@ -133,20 +135,11 @@ impl RiscvBackend {
                     if let Some(IrOperand::Imm(imm)) = inst.src2 {
                         let imm12 = (imm as u32) & 0xfff;
                         // addi rd, rs1, imm
-                        code.push(
-                            (imm12 << 20) | (rs1 << 15) | (0b000 << 12) | (rd << 7) | 0b0010011,
-                        );
+                        code.push(((imm12 << 20) | (rs1 << 15)) | (rd << 7) | 0b0010011);
                     } else if let Some(IrOperand::Reg(src2)) = inst.src2 {
                         let rs2 = Self::map_reg(src2) as u32;
                         // add rd, rs1, rs2
-                        code.push(
-                            (0b0000000 << 25)
-                                | (rs2 << 20)
-                                | (rs1 << 15)
-                                | (0b000 << 12)
-                                | (rd << 7)
-                                | 0b0110011,
-                        );
+                        code.push(((rs2 << 20) | (rs1 << 15)) | (rd << 7) | 0b0110011);
                     }
                 }
             }
@@ -159,16 +152,14 @@ impl RiscvBackend {
                         rd
                     };
 
-                    if let Some(IrOperand::Reg(src2)) = inst.src2 {
+                    if let Some(IrOperand::Imm(imm)) = inst.src2 {
+                        let imm12 = ((-imm) as u32) & 0xfff;
+                        code.push(((imm12 << 20) | (rs1 << 15)) | (rd << 7) | 0b0010011);
+                    } else if let Some(IrOperand::Reg(src2)) = inst.src2 {
                         let rs2 = Self::map_reg(src2) as u32;
-                        // sub rd, rs1, rs2 (0100000)
+                        // sub rd, rs1, rs2
                         code.push(
-                            (0b0100000 << 25)
-                                | (rs2 << 20)
-                                | (rs1 << 15)
-                                | (0b000 << 12)
-                                | (rd << 7)
-                                | 0b0110011,
+                            ((0b0100000 << 25) | (rs2 << 20) | (rs1 << 15)) | (rd << 7) | 0b0110011,
                         );
                     }
                 }
@@ -185,16 +176,12 @@ impl RiscvBackend {
             IrOpcode::VecAdd => {
                 // RVV 1.0 vadd.vv v0, v1, v2
                 // opcode 0x57, funct3 0x0, funct6 0x00
-                code.push(
-                    (0b000000 << 26) | (1 << 20) | (2 << 15) | (0b000 << 12) | (0 << 7) | 0x57,
-                );
+                code.push(((1 << 20) | (2 << 15)) | 0x57);
             }
             IrOpcode::VecSub => {
                 // RVV 1.0 vsub.vv v0, v1, v2
                 // funct6 0x02
-                code.push(
-                    (0b000010 << 26) | (1 << 20) | (2 << 15) | (0b000 << 12) | (0 << 7) | 0x57,
-                );
+                code.push(((0b000010 << 26) | (1 << 20) | (2 << 15)) | 0x57);
             }
             _ => {
                 code.push(0x00000013); // nop fallback

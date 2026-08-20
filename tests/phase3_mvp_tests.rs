@@ -87,11 +87,49 @@ fn application_start_passes_the_installed_dex_path_to_art() {
 }
 
 #[test]
+fn runtime_core_binders_share_manager_and_input_state() {
+    let mut runtime = LarRuntime::new();
+    runtime.install_application(ApplicationInfo {
+        package: "shared.app".into(),
+        launcher_activity: Some("MainActivity".into()),
+        dex_path: None,
+        dex: None,
+        native_libraries: Vec::new(),
+    });
+    let package = runtime.binder.get("package").unwrap();
+    let mut request = Parcel::new();
+    request.write_string("shared.app");
+    let mut reply = package.transact(transaction::package::GET_PACKAGE, request);
+    assert_eq!(reply.read_bool(), Some(true));
+    let activity = runtime.binder.get("activity").unwrap();
+    let mut start = Parcel::new();
+    start.write_string("shared.app");
+    start.write_string("MainActivity");
+    let mut started = activity.transact(transaction::activity::START, start);
+    let id = started.read_i64().unwrap() as u64;
+    assert_eq!(runtime.activity_manager.top().unwrap().id, id);
+    let input = runtime.binder.get("input").unwrap();
+    let mut inject = Parcel::new();
+    inject.write_i32(0);
+    inject.write_i32(4);
+    inject.write_bool(true);
+    assert_eq!(
+        input
+            .transact(transaction::input::INJECT, inject)
+            .read_bool(),
+        Some(true)
+    );
+    assert_eq!(runtime.input_dispatcher.len(), 1);
+}
+
+#[test]
 fn binder_core_services_are_in_process() {
     let registry = lar::ipc::BinderRegistry::new();
     registry.register_core_services();
     assert!(registry.get("activity").is_some());
     assert!(registry.get("input").is_some());
+    assert!(registry.get("package").is_some());
+    assert!(registry.get("window").is_some());
 }
 
 #[test]

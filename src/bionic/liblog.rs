@@ -1,7 +1,7 @@
 //! Android Bionic liblog / Logcat Shims.
 //!
 //! Provides shims for `__android_log_write`, `__android_log_print`, and log routing.
-
+#![allow(clippy::missing_safety_doc)]
 use std::ffi::CStr;
 use std::os::raw::{c_char, c_int};
 

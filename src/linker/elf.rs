@@ -413,8 +413,15 @@ impl ParsedElf {
         let phentsize = ehdr.e_phentsize as usize;
 
         for i in 0..ehdr.e_phnum as usize {
-            let start = phoff + i * phentsize;
-            let end = start + phentsize;
+            let entry_offset = i.checked_mul(phentsize).ok_or(ElfError::CorruptedData(
+                "Program header table size overflows",
+            ))?;
+            let start = phoff
+                .checked_add(entry_offset)
+                .ok_or(ElfError::CorruptedData("Program header offset overflows"))?;
+            let end = start
+                .checked_add(phentsize)
+                .ok_or(ElfError::CorruptedData("Program header range overflows"))?;
             if end > bytes.len() {
                 return Err(ElfError::BufferTooSmall {
                     expected: end,
@@ -434,7 +441,12 @@ impl ParsedElf {
                 if phdr.p_vaddr < vaddr_min {
                     vaddr_min = phdr.p_vaddr;
                 }
-                let end = phdr.p_vaddr + phdr.p_memsz;
+                let end = phdr
+                    .p_vaddr
+                    .checked_add(phdr.p_memsz)
+                    .ok_or(ElfError::CorruptedData(
+                        "PT_LOAD virtual address range overflows",
+                    ))?;
                 if end > vaddr_max {
                     vaddr_max = end;
                 }
@@ -446,11 +458,7 @@ impl ParsedElf {
             vaddr_max = 0;
         }
 
-        let total_memsz = if vaddr_max >= vaddr_min {
-            vaddr_max - vaddr_min
-        } else {
-            0
-        };
+        let total_memsz = vaddr_max.saturating_sub(vaddr_min);
 
         // Parse Dynamic Section if present
         let mut dynamic_entries = Vec::new();

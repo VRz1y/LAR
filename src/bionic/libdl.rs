@@ -1,4 +1,4 @@
-//! Android Bionic libdl Shims (dlopen, dlsym, dlclose, dlerror).
+#![allow(clippy::missing_safety_doc)]
 
 use std::os::raw::{c_char, c_int, c_void};
 use std::sync::atomic::{AtomicPtr, Ordering};

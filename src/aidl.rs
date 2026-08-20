@@ -79,7 +79,9 @@ pub fn parse(source: &str) -> Result<AidlFile, AidlError> {
             }
             continue;
         }
-        if current.is_some() && line.contains('(') {
+        if let Some(current) = current.as_mut()
+            && line.contains('(')
+        {
             let open = line.find('(').unwrap();
             let close = line.rfind(')').ok_or_else(|| err(index, "missing ')'"))?;
             let head: Vec<_> = line[..open].split_whitespace().collect();
@@ -91,7 +93,7 @@ pub fn parse(source: &str) -> Result<AidlFile, AidlError> {
                 .filter(|p| !p.trim().is_empty())
                 .map(|p| parse_parameter(p, index))
                 .collect::<Result<Vec<_>, _>>()?;
-            current.as_mut().unwrap().methods.push(AidlMethod {
+            current.methods.push(AidlMethod {
                 return_type: head[head.len() - 2].to_owned(),
                 name: head[head.len() - 1].to_owned(),
                 parameters,
@@ -133,13 +135,24 @@ fn err(line: usize, message: &str) -> AidlError {
 
 pub fn generate_rust(file: &AidlFile) -> String {
     let mut out = String::new();
+    if let Some(package) = &file.package {
+        out.push_str(&format!("// package: {}\n", package));
+    }
     for interface in &file.interfaces {
         out.push_str(&format!("pub trait {} {{\n", interface.name));
         for method in &interface.methods {
             let args = method
                 .parameters
                 .iter()
-                .map(|p| format!("{}: {}", p.name, rust_type(&p.ty)))
+                .map(|p| {
+                    let ty = rust_type(&p.ty);
+                    match p.direction {
+                        ParameterDirection::In => format!("{}: {}", p.name, ty),
+                        ParameterDirection::Out | ParameterDirection::InOut => {
+                            format!("{}: &mut {}", p.name, ty)
+                        }
+                    }
+                })
                 .collect::<Vec<_>>()
                 .join(", ");
             out.push_str(&format!(
@@ -150,7 +163,11 @@ pub fn generate_rust(file: &AidlFile) -> String {
                 rust_type(&method.return_type)
             ));
         }
-        out.push_str("}\n");
+        out.push_str("}\n\n");
+        out.push_str(&format!(
+            "pub struct {}Stub<T> {{ pub implementation: T }}\n",
+            interface.name
+        ));
     }
     out
 }
@@ -158,13 +175,20 @@ pub fn generate_rust(file: &AidlFile) -> String {
 pub fn generate_hidl_rust(file: &AidlFile) -> String {
     generate_rust(file)
 }
-fn rust_type(ty: &str) -> &str {
+fn rust_type(ty: &str) -> String {
+    if let Some(element) = ty.strip_suffix("[]") {
+        return format!("Vec<{}>", rust_type(element));
+    }
     match ty {
         "void" => "()",
+        "byte" => "i8",
         "int" => "i32",
         "long" => "i64",
+        "float" => "f32",
+        "double" => "f64",
         "boolean" => "bool",
         "String" => "String",
         _ => "ParcelValue",
     }
+    .to_owned()
 }

@@ -39,6 +39,8 @@ impl Drop for Library {
 pub struct WaylandConnection {
     display: *mut c_void,
     disconnect: unsafe extern "C" fn(*mut c_void),
+    flush: unsafe extern "C" fn(*mut c_void) -> libc::c_int,
+    roundtrip: unsafe extern "C" fn(*mut c_void) -> libc::c_int,
     _library: Library,
 }
 
@@ -55,12 +57,40 @@ impl WaylandConnection {
         Ok(Self {
             display,
             disconnect,
+            flush: library.symbol("wl_display_flush")?,
+            roundtrip: library.symbol("wl_display_roundtrip")?,
             _library: library,
         })
     }
 
     pub fn is_connected(&self) -> bool {
         !self.display.is_null()
+    }
+
+    pub fn roundtrip(&self) -> Result<(), HostGraphicsError> {
+        let result = unsafe { (self.roundtrip)(self.display) };
+        if result < 0 {
+            Err(HostGraphicsError::WaylandProtocolFailed)
+        } else {
+            Ok(())
+        }
+    }
+
+    pub fn present(&self, buffer: &GraphicBuffer) -> Result<(), HostGraphicsError> {
+        if buffer.planes().is_empty() {
+            return Err(HostGraphicsError::InvalidDmaBuf);
+        }
+        for plane in buffer.planes() {
+            plane
+                .borrowed_fd()
+                .map_err(|_| HostGraphicsError::InvalidDmaBuf)?;
+        }
+        let result = unsafe { (self.flush)(self.display) };
+        if result < 0 {
+            Err(HostGraphicsError::WaylandProtocolFailed)
+        } else {
+            Ok(())
+        }
     }
 }
 
@@ -169,6 +199,8 @@ pub enum HostGraphicsError {
     LibraryUnavailable,
     MissingSymbol,
     WaylandConnectionFailed,
+    WaylandProtocolFailed,
+    InvalidDmaBuf,
     DrmNodeUnavailable,
     GbmDeviceFailed,
     BufferAllocationFailed,

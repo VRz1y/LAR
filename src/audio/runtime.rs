@@ -39,7 +39,7 @@ impl AudioRuntime {
         if !self.capabilities.available || !self.capabilities.has_stream_api {
             return Err(AudioRuntimeError::PipeWireUnavailable);
         }
-        Ok(AudioStreamShim::open(backend, config)?)
+        Ok(AudioStreamShim::open_pipewire(backend, config)?)
     }
 }
 

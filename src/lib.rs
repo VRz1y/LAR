@@ -31,7 +31,7 @@ use crate::art::{AndroidRuntimeBundle, ArtRuntime, RuntimeBundleCatalog};
 use crate::audio::AudioRuntime;
 use crate::bionic::register_bionic_shims;
 use crate::graphics::GraphicsRuntime;
-use crate::ipc::BinderRegistry;
+use crate::ipc::{BinderRegistry, CoreServiceState};
 use crate::jit::{CacheError, JitEngine};
 use crate::lifecycle::{InputDispatcher, RuntimeLifecycle};
 use crate::linker::{ElfLoader, LoadedLibrary, LoaderError, SymbolRegistry};
@@ -86,11 +86,18 @@ impl LarRuntime {
         let audio = AudioRuntime::new();
         let art = ArtRuntime::discover();
         let binder = BinderRegistry::new();
-        binder.register_core_services();
         let activity_manager = ActivityManager::new();
         let package_manager = PackageManager::new();
         let window_manager = WindowManager::new();
         let input_dispatcher = InputDispatcher::default();
+        binder.register_core_services_with_state(std::sync::Arc::new(std::sync::Mutex::new(
+            CoreServiceState::from_managers(
+                package_manager.clone(),
+                activity_manager.clone(),
+                window_manager.clone(),
+                input_dispatcher.clone(),
+            ),
+        )));
 
         Self {
             host_arch,
@@ -153,7 +160,11 @@ impl LarRuntime {
     }
 
     pub fn load_execution_cache<P: AsRef<Path>>(&mut self, path: P) -> Result<(), CacheError> {
-        self.jit_engine.load_cache(path)
+        let load_base = self
+            .loaded_libraries
+            .first()
+            .map_or(0, |library| library.load_base as u64);
+        self.jit_engine.load_cache_for_base(path, load_base)
     }
 
     /// Resolves a symbol across all loaded libraries and Bionic shims.
@@ -198,7 +209,7 @@ impl LarRuntime {
                 .iter()
                 .filter(|contract| contract.is_ready())
                 .count(),
-            manifest_available: self.package_manager.len() > 0,
+            manifest_available: !self.package_manager.is_empty(),
             art_available: self.art.is_initialized(),
             binder_available: self.binder.is_available(),
             managers_available: true,
@@ -235,8 +246,7 @@ impl LarRuntime {
         let application = self
             .package_manager
             .application(package)
-            .ok_or(StartApplicationError::UnknownPackage)?
-            .clone();
+            .ok_or(StartApplicationError::UnknownPackage)?;
         self.art
             .start_application(&application.package, application.dex_path.as_deref())
             .map_err(StartApplicationError::Art)?;

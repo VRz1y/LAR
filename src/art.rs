@@ -97,21 +97,20 @@ impl AndroidRuntimeBundle {
         ];
         for (libart, core_oj, core_libart) in candidates {
             let framework = root.join("system/framework/framework.jar");
-            if let Some(dex2oat) = dex2oat.iter().find(|path| path.is_file()) {
-                if [&libart, &core_oj, &core_libart, &framework]
+            if let Some(dex2oat) = dex2oat.iter().find(|path| path.is_file())
+                && [&libart, &core_oj, &core_libart, &framework]
                     .iter()
                     .all(|path| path.is_file())
-                {
-                    return Ok(Self {
-                        root,
-                        libart,
-                        dex2oat: dex2oat.clone(),
-                        core_oj,
-                        core_libart,
-                        framework,
-                        metadata,
-                    });
-                }
+            {
+                return Ok(Self {
+                    root,
+                    libart,
+                    dex2oat: dex2oat.clone(),
+                    core_oj,
+                    core_libart,
+                    framework,
+                    metadata,
+                });
             }
         }
         Err(ArtError::InvalidBundle)
@@ -267,9 +266,18 @@ impl ArtRuntime {
             self.initialized = true;
             return Ok(());
         }
-        if self.config.libart.is_none()
-            || self.config.dex2oat.is_none()
+        if self
+            .config
+            .libart
+            .as_ref()
+            .is_none_or(|path| !path.is_file())
+            || self
+                .config
+                .dex2oat
+                .as_ref()
+                .is_none_or(|path| !path.is_file())
             || self.config.classpath.is_empty()
+            || self.config.classpath.iter().any(|path| !path.is_file())
         {
             return Err(ArtError::Unavailable);
         }

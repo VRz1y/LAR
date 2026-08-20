@@ -3,10 +3,12 @@
 //! Executes background pre-compilation during APK installation, generating the startup
 //! `.larcache` file so the app launches instantly with zero runtime JIT stutters.
 
-use crate::arch::HostArch;
+use crate::arch::{Arm64CpuContext, HostArch};
 use crate::jit::backend_riscv::RiscvBackend;
 use crate::jit::backend_x86::X86Backend;
-use crate::jit::cache::{CompiledBlock, MmapExecutionCache, hash_arm64_block};
+use crate::jit::cache::{
+    CompiledBlock, MmapExecutionCache, hash_arm64_block_with_context_and_base,
+};
 use crate::jit::decoder::Arm64Decoder;
 use crate::jit::ir::IrBlock;
 use crate::linker::LoadedLibrary;
@@ -59,7 +61,13 @@ impl PreJitDaemon {
                 continue;
             }
 
-            let block_hash = hash_arm64_block(node.address as u64, &node.opcodes);
+            let mut hash_context = Arm64CpuContext::new();
+            hash_context.pc = node.address as u64;
+            let block_hash = hash_arm64_block_with_context_and_base(
+                lib.load_base as u64,
+                &hash_context,
+                &node.opcodes,
+            );
 
             let mut ir_block = IrBlock::new(node.address as u64);
             let mut supported = true;
@@ -148,7 +156,15 @@ impl PreJitDaemon {
                 };
                 if !machine_code.is_empty() {
                     blocks.push(CompiledBlock {
-                        block_hash: hash_arm64_block(node.address as u64, &node.opcodes),
+                        block_hash: {
+                            let mut hash_context = Arm64CpuContext::new();
+                            hash_context.pc = node.address as u64;
+                            hash_arm64_block_with_context_and_base(
+                                lib.load_base as u64,
+                                &hash_context,
+                                &node.opcodes,
+                            )
+                        },
                         guest_pc: node.address as u64,
                         machine_code,
                     });

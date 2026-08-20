@@ -15,8 +15,14 @@ pub struct ApplicationInfo {
     pub dex: Option<crate::dex::DexMetadata>,
     pub native_libraries: Vec<String>,
 }
-#[derive(Debug, Default)]
+use std::sync::{Arc, Mutex};
+
+#[derive(Debug, Default, Clone)]
 pub struct PackageManager {
+    state: Arc<Mutex<PackageManagerState>>,
+}
+#[derive(Debug, Default)]
+struct PackageManagerState {
     packages: HashMap<String, PackageInfo>,
     applications: HashMap<String, ApplicationInfo>,
 }
@@ -25,21 +31,33 @@ impl PackageManager {
         Self::default()
     }
     pub fn install(&mut self, info: PackageInfo) {
-        self.packages.insert(info.name.clone(), info);
+        self.state
+            .lock()
+            .unwrap()
+            .packages
+            .insert(info.name.clone(), info);
     }
     pub fn install_application(&mut self, application: ApplicationInfo) {
-        self.packages
+        let mut state = self.state.lock().unwrap();
+        state
+            .packages
             .entry(application.package.clone())
             .or_insert(PackageInfo {
                 name: application.package.clone(),
                 version_code: 1,
                 permissions: HashSet::new(),
             });
-        self.applications
+        state
+            .applications
             .insert(application.package.clone(), application);
     }
-    pub fn application(&self, package: &str) -> Option<&ApplicationInfo> {
-        self.applications.get(package)
+    pub fn application(&self, package: &str) -> Option<ApplicationInfo> {
+        self.state
+            .lock()
+            .unwrap()
+            .applications
+            .get(package)
+            .cloned()
     }
     pub fn parse_manifest(&mut self, manifest: &str) -> Result<PackageInfo, ManagerError> {
         let name = attribute(manifest, "package").ok_or(ManagerError::InvalidManifest)?;
@@ -59,15 +77,22 @@ impl PackageManager {
         self.install(info.clone());
         Ok(info)
     }
-    pub fn get(&self, name: &str) -> Option<&PackageInfo> {
-        self.packages.get(name)
+    pub fn get(&self, name: &str) -> Option<PackageInfo> {
+        self.state.lock().unwrap().packages.get(name).cloned()
     }
     pub fn has_permission(&self, package: &str, permission: &str) -> bool {
-        self.get(package)
+        self.state
+            .lock()
+            .unwrap()
+            .packages
+            .get(package)
             .is_some_and(|p| p.permissions.contains(permission))
     }
     pub fn len(&self) -> usize {
-        self.packages.len()
+        self.state.lock().unwrap().packages.len()
+    }
+    pub fn is_empty(&self) -> bool {
+        self.state.lock().unwrap().packages.is_empty()
     }
 }
 
@@ -91,27 +116,37 @@ pub struct ActivityRecord {
     pub name: String,
     pub state: ActivityState,
 }
-#[derive(Debug, Default)]
+#[derive(Debug, Default, Clone)]
 pub struct ActivityManager {
+    state: Arc<Mutex<ActivityManagerState>>,
+}
+#[derive(Debug)]
+struct ActivityManagerState {
     next_id: u64,
     stack: Vec<ActivityRecord>,
 }
-impl ActivityManager {
-    pub fn new() -> Self {
+impl Default for ActivityManagerState {
+    fn default() -> Self {
         Self {
             next_id: 1,
             stack: Vec::new(),
         }
     }
+}
+impl ActivityManager {
+    pub fn new() -> Self {
+        Self::default()
+    }
     pub fn start(&mut self, package: impl Into<String>, name: impl Into<String>) -> u64 {
-        if let Some(top) = self.stack.last_mut() {
-            if top.state == ActivityState::Resumed {
-                top.state = ActivityState::Paused;
-            }
+        let mut state = self.state.lock().unwrap();
+        if let Some(top) = state.stack.last_mut()
+            && top.state == ActivityState::Resumed
+        {
+            top.state = ActivityState::Paused;
         }
-        let id = self.next_id;
-        self.next_id += 1;
-        self.stack.push(ActivityRecord {
+        let id = state.next_id;
+        state.next_id += 1;
+        state.stack.push(ActivityRecord {
             id,
             package: package.into(),
             name: name.into(),
@@ -120,21 +155,22 @@ impl ActivityManager {
         id
     }
     pub fn finish(&mut self, id: u64) -> bool {
-        let Some(index) = self.stack.iter().position(|a| a.id == id) else {
+        let mut state = self.state.lock().unwrap();
+        let Some(index) = state.stack.iter().position(|a| a.id == id) else {
             return false;
         };
-        self.stack[index].state = ActivityState::Destroyed;
-        self.stack.remove(index);
-        if let Some(top) = self.stack.last_mut() {
+        state.stack[index].state = ActivityState::Destroyed;
+        state.stack.remove(index);
+        if let Some(top) = state.stack.last_mut() {
             top.state = ActivityState::Resumed;
         }
         true
     }
-    pub fn top(&self) -> Option<&ActivityRecord> {
-        self.stack.last()
+    pub fn top(&self) -> Option<ActivityRecord> {
+        self.state.lock().unwrap().stack.last().cloned()
     }
-    pub fn stack(&self) -> &[ActivityRecord] {
-        &self.stack
+    pub fn stack(&self) -> Vec<ActivityRecord> {
+        self.state.lock().unwrap().stack.clone()
     }
 }
 
@@ -146,31 +182,32 @@ pub struct WindowGeometry {
     pub height: u32,
     pub dpi: u32,
 }
-#[derive(Debug, Default)]
+#[derive(Debug, Default, Clone)]
 pub struct WindowManager {
-    windows: HashMap<u64, WindowGeometry>,
+    state: Arc<Mutex<HashMap<u64, WindowGeometry>>>,
 }
 impl WindowManager {
     pub fn new() -> Self {
         Self::default()
     }
     pub fn create(&mut self, id: u64, geometry: WindowGeometry) {
-        self.windows.insert(id, geometry);
+        self.state.lock().unwrap().insert(id, geometry);
     }
     pub fn resize(&mut self, id: u64, width: u32, height: u32) -> Result<(), ManagerError> {
-        let window = self
-            .windows
-            .get_mut(&id)
-            .ok_or(ManagerError::UnknownWindow)?;
+        let mut state = self.state.lock().unwrap();
+        let window = state.get_mut(&id).ok_or(ManagerError::UnknownWindow)?;
         window.width = width;
         window.height = height;
         Ok(())
     }
     pub fn geometry(&self, id: u64) -> Option<WindowGeometry> {
-        self.windows.get(&id).copied()
+        self.state.lock().unwrap().get(&id).copied()
     }
     pub fn len(&self) -> usize {
-        self.windows.len()
+        self.state.lock().unwrap().len()
+    }
+    pub fn is_empty(&self) -> bool {
+        self.state.lock().unwrap().is_empty()
     }
 }
 

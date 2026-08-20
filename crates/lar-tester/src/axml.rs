@@ -151,14 +151,16 @@ pub(crate) fn decode_manifest(data: &[u8]) -> Result<DecodedManifest, &'static s
                     main: true,
                     launcher: true,
                 } = frame.kind
+                    && result.launcher_activity.is_none()
                 {
-                    if result.launcher_activity.is_none() {
-                        result.launcher_activity = component;
-                    }
+                    result.launcher_activity = component;
                 }
             }
             XML_RESOURCE_MAP_TYPE => {
-                if header_size != 8 || (chunk_size - header_size) % 4 != 0 || pool.is_none() {
+                if header_size != 8
+                    || !(chunk_size - header_size).is_multiple_of(4)
+                    || pool.is_none()
+                {
                     return Err("bad resource map chunk");
                 }
             }
@@ -253,12 +255,12 @@ fn parse_start_element(
                 mark_intent_filter(frames, true)?;
             }
         }
-        "category" => {
-            if string_attribute(strings, &attributes, Some(ANDROID_NAMESPACE), "name")?.as_deref()
-                == Some("android.intent.category.LAUNCHER")
-            {
-                mark_intent_filter(frames, false)?;
-            }
+        "category"
+            if string_attribute(strings, &attributes, Some(ANDROID_NAMESPACE), "name")?
+                .as_deref()
+                == Some("android.intent.category.LAUNCHER") =>
+        {
+            mark_intent_filter(frames, false)?;
         }
         _ => {}
     }

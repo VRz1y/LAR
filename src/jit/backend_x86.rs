@@ -84,12 +84,69 @@ impl X86Backend {
     /// Compiles an IR block into x86_64 machine code bytes.
     pub fn compile_block(block: &IrBlock) -> Vec<u8> {
         let mut code = Vec::with_capacity(block.instructions.len() * 8);
+        let mut instruction_offsets = Vec::with_capacity(block.instructions.len() + 1);
+        let mut branches = Vec::new();
 
-        for inst in &block.instructions {
-            Self::emit_instruction(&mut code, inst);
+        for (index, inst) in block.instructions.iter().enumerate() {
+            instruction_offsets.push(code.len());
+            match (inst.opcode, inst.src1) {
+                (IrOpcode::Branch, IrOperand::Imm(offset)) => {
+                    code.push(0xe9);
+                    let displacement_offset = code.len();
+                    code.extend_from_slice(&0i32.to_le_bytes());
+                    branches.push((index, offset, displacement_offset));
+                }
+                (IrOpcode::CondBranch(cond), IrOperand::Imm(offset)) => {
+                    if cond == ConditionCode::AL {
+                        code.push(0xe9);
+                    } else if cond == ConditionCode::NV {
+                        continue;
+                    } else {
+                        code.extend_from_slice(&[0x0f, Self::condition_opcode(cond)]);
+                    }
+                    let displacement_offset = code.len();
+                    code.extend_from_slice(&0i32.to_le_bytes());
+                    branches.push((index, offset, displacement_offset));
+                }
+                _ => Self::emit_instruction(&mut code, inst),
+            }
+        }
+        instruction_offsets.push(code.len());
+
+        for (index, guest_offset, displacement_offset) in branches {
+            let target = index as i64 + guest_offset / 4;
+            if guest_offset % 4 != 0 || !(0..instruction_offsets.len() as i64).contains(&target) {
+                continue;
+            }
+            let displacement =
+                instruction_offsets[target as usize] as i64 - (displacement_offset + 4) as i64;
+            if let Ok(displacement) = i32::try_from(displacement) {
+                code[displacement_offset..displacement_offset + 4]
+                    .copy_from_slice(&displacement.to_le_bytes());
+            }
         }
 
         code
+    }
+
+    fn condition_opcode(cond: ConditionCode) -> u8 {
+        match cond {
+            ConditionCode::EQ => 0x84,
+            ConditionCode::NE => 0x85,
+            ConditionCode::CS => 0x83,
+            ConditionCode::CC => 0x82,
+            ConditionCode::MI => 0x88,
+            ConditionCode::PL => 0x89,
+            ConditionCode::VS => 0x80,
+            ConditionCode::VC => 0x81,
+            ConditionCode::HI => 0x87,
+            ConditionCode::LS => 0x86,
+            ConditionCode::GE => 0x8d,
+            ConditionCode::LT => 0x8c,
+            ConditionCode::GT => 0x8f,
+            ConditionCode::LE => 0x8e,
+            ConditionCode::AL | ConditionCode::NV => unreachable!(),
+        }
     }
 
     pub fn compile_context_block(block: &IrBlock) -> Result<Vec<u8>, String> {

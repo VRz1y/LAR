@@ -1,6 +1,7 @@
 //! Android Bionic libc Replacement and Shims.
 //!
 //! Provides native implementations of core C standard library functions for Bionic compatibility.
+#![allow(clippy::missing_safety_doc)]
 
 use std::ffi::CStr;
 use std::os::raw::{c_char, c_int, c_void};

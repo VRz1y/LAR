@@ -1,3 +1,4 @@
+use super::pipewire::{PipeWireError, PipeWireStream};
 use super::ring_buffer::{MutexRingBuffer, RingBufferError, SpscRingBuffer};
 use std::sync::atomic::{AtomicU8, Ordering};
 
@@ -37,6 +38,7 @@ pub struct AudioStreamShim {
     input: MutexRingBuffer<f32>,
     output: SpscRingBuffer<f32>,
     state: AtomicU8,
+    host: Option<PipeWireStream>,
 }
 
 impl AudioStreamShim {
@@ -53,7 +55,20 @@ impl AudioStreamShim {
             input: MutexRingBuffer::new(samples)?,
             output: SpscRingBuffer::new(samples)?,
             state: AtomicU8::new(0),
+            host: None,
         })
+    }
+
+    pub fn open_pipewire(
+        backend: StreamBackend,
+        config: AudioStreamConfig,
+    ) -> Result<Self, StreamError> {
+        let mut stream = Self::open(backend, config)?;
+        stream.host = Some(PipeWireStream::connect(
+            "LAR Android audio",
+            config.direction != StreamDirection::Input,
+        )?);
+        Ok(stream)
     }
 
     pub fn backend(&self) -> StreamBackend {
@@ -72,10 +87,16 @@ impl AudioStreamShim {
         {
             return Err(StreamError::AlreadyRunning);
         }
+        if let Some(host) = &self.host {
+            host.set_active(true)?;
+        }
         Ok(())
     }
 
     pub fn stop(&self) {
+        if let Some(host) = &self.host {
+            let _ = host.set_active(false);
+        }
         self.state.store(0, Ordering::Release);
     }
 
@@ -126,7 +147,14 @@ impl AudioStreamShim {
 pub enum StreamError {
     InvalidConfig,
     AlreadyRunning,
+    PipeWire(PipeWireError),
     RingBuffer(RingBufferError),
+}
+
+impl From<PipeWireError> for StreamError {
+    fn from(value: PipeWireError) -> Self {
+        Self::PipeWire(value)
+    }
 }
 
 impl From<RingBufferError> for StreamError {

@@ -47,10 +47,10 @@ impl CallgraphAnalyzer {
         ];
 
         for &sym_name in &common_start_symbols {
-            if let Some(addr) = lib.lookup_symbol(sym_name) {
-                if visited_addrs.insert(addr) {
-                    entry_points.push((sym_name.to_string(), addr));
-                }
+            if let Some(addr) = lib.lookup_symbol(sym_name)
+                && visited_addrs.insert(addr)
+            {
+                entry_points.push((sym_name.to_string(), addr));
             }
         }
 

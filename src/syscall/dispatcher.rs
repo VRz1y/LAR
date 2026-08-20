@@ -6,11 +6,12 @@
 
 use crate::arch::context::Arm64CpuContext;
 use crate::memory::mmap::{MemoryRegion, ProtFlags};
-use crate::memory::page::{align_down_16k, align_up_16k};
+use crate::memory::page::{PAGE_OFFSET_MASK_16K, align_down_16k};
 use crate::syscall::procfs::VirtualProcFs;
 use crate::syscall::table::*;
+use std::collections::HashMap;
 use std::ffi::CStr;
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 
 /// Syscall Execution Errors.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -23,6 +24,7 @@ pub enum SyscallError {
 /// Syscall Dispatcher managing guest syscall execution.
 pub struct SyscallDispatcher {
     procfs: Arc<VirtualProcFs>,
+    anonymous_mappings: Mutex<HashMap<usize, MemoryRegion>>,
 }
 
 impl Default for SyscallDispatcher {
@@ -35,11 +37,15 @@ impl SyscallDispatcher {
     pub fn new() -> Self {
         Self {
             procfs: Arc::new(VirtualProcFs::new()),
+            anonymous_mappings: Mutex::new(HashMap::new()),
         }
     }
 
     pub fn with_procfs(procfs: Arc<VirtualProcFs>) -> Self {
-        Self { procfs }
+        Self {
+            procfs,
+            anonymous_mappings: Mutex::new(HashMap::new()),
+        }
     }
 
     pub fn procfs(&self) -> &Arc<VirtualProcFs> {
@@ -53,18 +59,20 @@ impl SyscallDispatcher {
     /// - `x0` receives the return code (negative for errno, e.g. -EFAULT)
     pub fn dispatch(&self, ctx: &mut Arm64CpuContext) {
         let nr = ctx.regs[8] as u32;
-        let a0 = ctx.regs[0];
-        let a1 = ctx.regs[1];
-        let a2 = ctx.regs[2];
-        let a3 = ctx.regs[3];
-        let a4 = ctx.regs[4];
-        let a5 = ctx.regs[5];
+        let args = [
+            ctx.regs[0],
+            ctx.regs[1],
+            ctx.regs[2],
+            ctx.regs[3],
+            ctx.regs[4],
+            ctx.regs[5],
+        ];
 
-        let ret = self.handle_syscall(nr, a0, a1, a2, a3, a4, a5);
+        let ret = self.handle_syscall(nr, args);
         ctx.set_return(ret as u64);
     }
 
-    fn handle_syscall(&self, nr: u32, a0: u64, a1: u64, a2: u64, a3: u64, a4: u64, a5: u64) -> i64 {
+    fn handle_syscall(&self, nr: u32, [a0, a1, a2, a3, a4, a5]: [u64; 6]) -> i64 {
         match nr {
             ARM64_NR_GETPID => unsafe { libc::getpid() as i64 },
             ARM64_NR_GETPPID => unsafe { libc::getppid() as i64 },
@@ -181,14 +189,18 @@ impl SyscallDispatcher {
                 let fd = a4 as i32;
                 let offset = a5 as libc::off_t;
 
-                let aligned_len = align_up_16k(len);
-
-                // If addr == 0 and anonymous mapping, guarantee 16KB alignment
+                if len == 0 {
+                    return -libc::EINVAL as i64;
+                }
+                let aligned_len = match len.checked_add(PAGE_OFFSET_MASK_16K) {
+                    Some(value) => value & !PAGE_OFFSET_MASK_16K,
+                    None => return -libc::ENOMEM as i64,
+                };
                 if addr == 0 && (flags & libc::MAP_ANONYMOUS) != 0 {
                     match MemoryRegion::allocate_16k(aligned_len, ProtFlags(prot)) {
                         Ok(region) => {
                             let ptr = region.as_ptr() as usize;
-                            std::mem::forget(region); // Leave mapped in process
+                            self.anonymous_mappings.lock().unwrap().insert(ptr, region);
                             return ptr as i64;
                         }
                         Err(_) => {
@@ -221,7 +233,24 @@ impl SyscallDispatcher {
                 let addr = a0 as usize;
                 let len = a1 as usize;
                 let aligned_addr = align_down_16k(addr);
-                let aligned_len = align_up_16k(len);
+                let page_offset = addr - aligned_addr;
+                let aligned_len = match page_offset.checked_add(len).and_then(|v| {
+                    v.checked_add(PAGE_OFFSET_MASK_16K)
+                        .map(|x| x & !PAGE_OFFSET_MASK_16K)
+                }) {
+                    Some(value) if value != 0 => value,
+                    _ => return -libc::EINVAL as i64,
+                };
+
+                if self
+                    .anonymous_mappings
+                    .lock()
+                    .unwrap()
+                    .remove(&aligned_addr)
+                    .is_some()
+                {
+                    return 0;
+                }
 
                 let res = unsafe { libc::munmap(aligned_addr as *mut libc::c_void, aligned_len) };
                 if res < 0 {
@@ -236,7 +265,14 @@ impl SyscallDispatcher {
                 let len = a1 as usize;
                 let prot = a2 as i32;
                 let aligned_addr = align_down_16k(addr);
-                let aligned_len = align_up_16k(len);
+                let page_offset = addr - aligned_addr;
+                let aligned_len = match page_offset.checked_add(len).and_then(|v| {
+                    v.checked_add(PAGE_OFFSET_MASK_16K)
+                        .map(|x| x & !PAGE_OFFSET_MASK_16K)
+                }) {
+                    Some(value) if value != 0 => value,
+                    _ => return -libc::EINVAL as i64,
+                };
 
                 let res =
                     unsafe { libc::mprotect(aligned_addr as *mut libc::c_void, aligned_len, prot) };

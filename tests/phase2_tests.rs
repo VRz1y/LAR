@@ -58,6 +58,33 @@ fn dmabuf_plane_duplicates_descriptor_ownership() {
 }
 
 #[test]
+fn native_window_producer_flow_requires_dequeue_before_queue() {
+    let file = std::fs::File::open("/dev/null").unwrap();
+    let plane = DmaBufPlane::duplicate(file.as_fd(), 0, 256, 4096, 0).unwrap();
+    let buffer = lar::graphics::GraphicBuffer::new(
+        lar::graphics::BufferDescription {
+            width: 64,
+            height: 4,
+            stride: 64,
+            format: PixelFormat::Bgra8888,
+        },
+        vec![plane],
+    )
+    .unwrap();
+    let window = ANativeWindow::new();
+    window.connect().unwrap();
+    assert_eq!(
+        window.queue_buffer(buffer.clone(), None),
+        Err(lar::graphics::WindowError::NotDequeued)
+    );
+    window.set_buffer(buffer.clone(), None).unwrap();
+    let dequeued = window.dequeue().unwrap();
+    window.queue_buffer(dequeued, None).unwrap();
+    assert_eq!(window.acquire_queued().unwrap().buffer, buffer);
+    window.release_buffer(buffer, None).unwrap();
+}
+
+#[test]
 fn active_wayland_session_accepts_connection() {
     if std::env::var_os("WAYLAND_DISPLAY").is_some() {
         assert!(WaylandConnection::connect().unwrap().is_connected());
