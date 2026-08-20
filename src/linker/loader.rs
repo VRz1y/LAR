@@ -5,6 +5,7 @@
 
 use crate::linker::elf::*;
 use crate::linker::symbols::{DynamicSymbolTable, SymbolRegistry};
+use crate::memory::ShadowText;
 use crate::memory::mmap::{MemoryError, MemoryRegion, ProtFlags};
 use crate::memory::page::{PAGE_SIZE_16K, align_down_16k, align_up_16k, is_16k_aligned};
 use std::cell::Cell;
@@ -65,6 +66,7 @@ pub struct LoadedLibrary {
     pub name: String,
     pub load_base: usize,
     pub mem_region: MemoryRegion,
+    pub shadow_text: ShadowText,
     pub symtab: DynamicSymbolTable,
     pub init_array: Vec<usize>,
     pub fini_array: Vec<usize>,
@@ -452,6 +454,34 @@ impl ElfLoader {
             process_rela_table(off, pltrel_sz)?;
         }
 
+        let shadow_text = ShadowText::new(
+            parsed
+                .load_segments
+                .iter()
+                .filter(|phdr| phdr.is_executable())
+                .map(|phdr| {
+                    let offset = va_to_offset(phdr.p_vaddr)?;
+                    let size = usize::try_from(phdr.p_memsz).map_err(|_| {
+                        LoaderError::Elf(ElfError::CorruptedData(
+                            "PT_LOAD memory size is too large",
+                        ))
+                    })?;
+                    let end = offset.checked_add(size).ok_or(LoaderError::Elf(
+                        ElfError::CorruptedData("PT_LOAD shadow range overflows"),
+                    ))?;
+                    if end > mem_region.len() {
+                        return Err(LoaderError::Elf(ElfError::CorruptedData(
+                            "PT_LOAD shadow range exceeds mapped bounds",
+                        )));
+                    }
+                    let bytes = unsafe {
+                        std::slice::from_raw_parts(mem_region.as_ptr().add(offset), size)
+                    };
+                    Ok((load_base + phdr.p_vaddr as usize, bytes.to_vec()))
+                })
+                .collect::<Result<Vec<_>, LoaderError>>()?,
+        );
+
         // Step 4: Extract Initialization & Finalization functions
         let mut init_array = Vec::new();
         let mut init_routines = Vec::new();
@@ -580,6 +610,7 @@ impl ElfLoader {
             name: name.to_string(),
             load_base,
             mem_region,
+            shadow_text,
             symtab,
             init_array,
             fini_array,

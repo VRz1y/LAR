@@ -2,9 +2,11 @@
 
 pub mod bridge;
 pub mod context;
+pub mod trampoline;
 
 pub use bridge::{CallBridge, GuestBridgeHandler};
 pub use context::Arm64CpuContext;
+pub use trampoline::{Arm64ContextHandler, Arm64ContextTrampoline};
 
 use std::fmt;
 

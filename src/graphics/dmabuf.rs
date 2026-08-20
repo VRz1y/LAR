@@ -1,6 +1,49 @@
 use std::fmt;
+use std::ops::{Deref, DerefMut};
 use std::os::fd::{AsFd, AsRawFd, BorrowedFd, FromRawFd, OwnedFd, RawFd};
 use std::sync::Arc;
+
+#[derive(Debug)]
+pub struct DmaBufMapping {
+    ptr: *mut libc::c_void,
+    len: usize,
+    view_start: usize,
+    view_len: usize,
+}
+
+impl DmaBufMapping {
+    pub fn as_slice(&self) -> &[u8] {
+        unsafe {
+            std::slice::from_raw_parts((self.ptr as *const u8).add(self.view_start), self.view_len)
+        }
+    }
+    pub fn as_mut_slice(&mut self) -> &mut [u8] {
+        unsafe {
+            std::slice::from_raw_parts_mut(
+                (self.ptr as *mut u8).add(self.view_start),
+                self.view_len,
+            )
+        }
+    }
+}
+impl Deref for DmaBufMapping {
+    type Target = [u8];
+    fn deref(&self) -> &Self::Target {
+        self.as_slice()
+    }
+}
+impl DerefMut for DmaBufMapping {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        self.as_mut_slice()
+    }
+}
+impl Drop for DmaBufMapping {
+    fn drop(&mut self) {
+        unsafe {
+            libc::munmap(self.ptr, self.len);
+        }
+    }
+}
 
 #[derive(Debug, Clone)]
 pub struct DmaBufPlane {
@@ -10,7 +53,6 @@ pub struct DmaBufPlane {
     pub size: u64,
     pub modifier: u64,
 }
-
 impl DmaBufPlane {
     pub fn from_owned_fd(
         fd: OwnedFd,
@@ -29,7 +71,6 @@ impl DmaBufPlane {
         plane.validate()?;
         Ok(plane)
     }
-
     pub fn duplicate(
         fd: BorrowedFd<'_>,
         offset: u32,
@@ -41,27 +82,62 @@ impl DmaBufPlane {
         if duplicated < 0 {
             return Err(DmaBufError::DuplicateFailed(errno()));
         }
-        let owned = unsafe { OwnedFd::from_raw_fd(duplicated) };
-        Self::from_owned_fd(owned, offset, stride, size, modifier)
+        Self::from_owned_fd(
+            unsafe { OwnedFd::from_raw_fd(duplicated) },
+            offset,
+            stride,
+            size,
+            modifier,
+        )
     }
-
     pub fn validate(&self) -> Result<(), DmaBufError> {
         if self.stride == 0 || self.size < self.offset as u64 {
             return Err(DmaBufError::InvalidPlane);
         }
         Ok(())
     }
-
     pub fn borrowed_fd(&self) -> Result<BorrowedFd<'_>, DmaBufError> {
         self.validate()?;
         Ok(self.fd.as_fd())
     }
-
     pub fn fd(&self) -> RawFd {
         self.fd.as_raw_fd()
     }
+    pub fn mmap_writable(&self) -> Result<DmaBufMapping, DmaBufError> {
+        self.validate()?;
+        let page = unsafe { libc::sysconf(libc::_SC_PAGESIZE) } as u64;
+        if page == 0 {
+            return Err(DmaBufError::MapFailed(libc::EINVAL));
+        }
+        let aligned = (self.offset as u64 / page) * page;
+        let view_len = usize::try_from(self.size - self.offset as u64)
+            .map_err(|_| DmaBufError::MapFailed(libc::EOVERFLOW))?;
+        let view_start = usize::try_from(self.offset as u64 - aligned)
+            .map_err(|_| DmaBufError::MapFailed(libc::EOVERFLOW))?;
+        let len = view_start
+            .checked_add(view_len)
+            .ok_or(DmaBufError::MapFailed(libc::EOVERFLOW))?;
+        let ptr = unsafe {
+            libc::mmap(
+                std::ptr::null_mut(),
+                len,
+                libc::PROT_READ | libc::PROT_WRITE,
+                libc::MAP_SHARED,
+                self.fd(),
+                aligned as libc::off_t,
+            )
+        };
+        if ptr == libc::MAP_FAILED {
+            return Err(DmaBufError::MapFailed(errno()));
+        }
+        Ok(DmaBufMapping {
+            ptr,
+            len,
+            view_start,
+            view_len,
+        })
+    }
 }
-
 impl PartialEq for DmaBufPlane {
     fn eq(&self, other: &Self) -> bool {
         self.fd() == other.fd()
@@ -71,7 +147,6 @@ impl PartialEq for DmaBufPlane {
             && self.modifier == other.modifier
     }
 }
-
 impl Eq for DmaBufPlane {}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -79,13 +154,11 @@ pub enum FenceKind {
     Acquire,
     Release,
 }
-
 #[derive(Debug)]
 pub struct SyncFence {
     fd: OwnedFd,
     kind: FenceKind,
 }
-
 impl SyncFence {
     pub fn from_owned_fd(fd: OwnedFd, kind: FenceKind) -> Self {
         Self { fd, kind }
@@ -119,7 +192,6 @@ impl SyncFence {
         Ok(result > 0 && (pollfd.revents & (libc::POLLIN | libc::POLLHUP)) != 0)
     }
 }
-
 impl AsRawFd for SyncFence {
     fn as_raw_fd(&self) -> RawFd {
         self.fd()
@@ -132,20 +204,14 @@ pub enum DmaBufError {
     InvalidFence,
     PollFailed(i32),
     DuplicateFailed(i32),
+    MapFailed(i32),
 }
-
 impl fmt::Display for DmaBufError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            Self::InvalidPlane => write!(f, "invalid DMA-BUF plane"),
-            Self::InvalidFence => write!(f, "invalid sync fence"),
-            Self::PollFailed(e) => write!(f, "fence poll failed (errno {})", e),
-            Self::DuplicateFailed(e) => write!(f, "DMA-BUF duplication failed (errno {})", e),
-        }
+        write!(f, "DMA-BUF error: {self:?}")
     }
 }
 impl std::error::Error for DmaBufError {}
-
 fn errno() -> i32 {
     unsafe { *libc::__errno_location() }
 }

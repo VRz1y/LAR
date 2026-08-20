@@ -2,6 +2,7 @@
 
 pub mod mmap;
 pub mod page;
+pub mod shadow;
 
 pub use mmap::{MemoryError, MemoryRegion, ProtFlags, VirtualMemoryManager};
 pub use page::{
@@ -9,3 +10,4 @@ pub use page::{
     align_up, align_up_16k, host_page_size, is_16k_aligned, is_aligned, page_count_16k,
     page_offset_16k,
 };
+pub use shadow::ShadowText;

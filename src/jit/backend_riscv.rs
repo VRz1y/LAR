@@ -47,6 +47,24 @@ pub enum RiscvReg {
 pub struct RiscvBackend;
 
 impl RiscvBackend {
+    pub fn lower_with_hooks(
+        block: &mut IrBlock,
+        hooks: &[&dyn crate::jit::IrHook],
+    ) -> Result<Vec<u32>, crate::jit::IrHookError> {
+        for hook in hooks {
+            hook.apply(block)?;
+        }
+        Ok(Self::compile_block(block))
+    }
+
+    pub fn lower_with_hook<H: crate::jit::IrHook>(
+        block: &mut IrBlock,
+        hook: &H,
+    ) -> Result<Vec<u32>, crate::jit::IrHookError> {
+        hook.apply(block)?;
+        Ok(Self::compile_block(block))
+    }
+
     /// Maps an ARM64 register to a RISC-V register.
     pub fn map_reg(reg: IrReg) -> RiscvReg {
         match reg {

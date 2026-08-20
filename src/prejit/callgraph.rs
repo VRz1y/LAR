@@ -75,20 +75,17 @@ impl CallgraphAnalyzer {
         max_insts: usize,
     ) -> Vec<u32> {
         let mut opcodes = Vec::new();
-        let load_base = lib.load_base;
-        let mem_len = lib.mem_region.len();
-
-        if start_addr < load_base || start_addr + 4 > load_base + mem_len {
+        if !lib.shadow_text.contains(start_addr)
+            || lib.shadow_text.read_text_u32(start_addr).is_none()
+        {
             return opcodes;
         }
 
         let mut curr = start_addr;
         for _ in 0..max_insts {
-            if curr + 4 > load_base + mem_len {
+            let Some(raw) = lib.shadow_text.read_text_u32(curr) else {
                 break;
-            }
-
-            let raw = unsafe { *(curr as *const u32) };
+            };
             opcodes.push(raw);
 
             let inst = Arm64Decoder::decode(raw);

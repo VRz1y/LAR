@@ -242,6 +242,11 @@ impl LarRuntime {
         self.configure_runtime_bundle(&bundle)
     }
 
+    pub fn stop(&mut self) {
+        self.graphics.stop();
+        self.lifecycle = RuntimeLifecycle::Stopped;
+    }
+
     pub fn start_application(&mut self, package: &str) -> Result<u64, StartApplicationError> {
         let application = self
             .package_manager
